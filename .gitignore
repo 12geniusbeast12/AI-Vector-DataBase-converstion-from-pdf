@@ -1,0 +1,26 @@
+# Build directories
+build/
+bin/
+Release/
+Debug/
+x64/
+
+# Qt files
+*.user
+*.aps
+*.user.*
+__pycache__/
+*.pyc
+
+# Local Data and Logs
+data/
+*.sqlite
+*.csv
+.system_generated/
+.gemini/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.lock
