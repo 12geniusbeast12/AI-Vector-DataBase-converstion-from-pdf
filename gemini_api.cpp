@@ -18,7 +18,7 @@ void GeminiApi::setLocalMode(int mode) {
     qDebug() << "GeminiApi provider changed to mode:" << m_localMode;
 }
 
-void GeminiApi::getEmbeddings(const QString& text) {
+void GeminiApi::getEmbeddings(const QString& text, const QMap<QString, QVariant>& metadata) {
     QUrl url;
     QJsonObject json;
 
@@ -45,8 +45,8 @@ void GeminiApi::getEmbeddings(const QString& text) {
 
     qDebug() << "Requesting embeddings for text (length):" << text.length() << "using url:" << url.toString();
     QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(json).toJson());
-    connect(reply, &QNetworkReply::finished, this, [this, reply, text]() {
-        onEmbeddingsReply(reply, text);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, text, metadata]() {
+        onEmbeddingsReply(reply, text, metadata);
     });
 }
 
@@ -91,7 +91,7 @@ void GeminiApi::processPdf(const QString& filePath) {
     });
 }
 
-void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalText) {
+void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalText, const QMap<QString, QVariant>& metadata) {
     if (reply->error() != QNetworkReply::NoError) {
         QString errorMsg = reply->errorString();
         int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -139,7 +139,9 @@ void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalT
     if (embedding.isEmpty()) {
         emit errorOccurred("Embeddings returned empty. Please verify you are using an embedding-compatible model in your local AI server.");
     } else {
-        emit embeddingsReady(originalText, embedding);
+        QMap<QString, QVariant> finalMetadata = metadata;
+        finalMetadata["model_sig"] = m_selectedModel.name.isEmpty() ? (m_localMode == 1 ? "nomic-embed-text" : "gemini-embedding-001") : m_selectedModel.name;
+        emit embeddingsReady(originalText, embedding, finalMetadata);
     }
     reply->deleteLater();
 }
@@ -238,4 +240,64 @@ void GeminiApi::discoverModels() {
         lReply->deleteLater();
         check();
     });
+}
+void GeminiApi::rerank(const QString& query, const QVector<VectorEntry>& candidates) {
+    if (m_localMode == 0 || candidates.isEmpty()) {
+        emit rerankingReady(candidates);
+        return;
+    }
+
+    struct RerankState {
+        QVector<VectorEntry> results;
+        int remaining;
+    };
+    auto state = std::make_shared<RerankState>();
+    state->results = candidates;
+    state->remaining = candidates.size();
+
+    for (int i = 0; i < candidates.size(); ++i) {
+        QUrl url;
+        QJsonObject json;
+        if (m_localMode == 1) { // Ollama
+            url = QUrl("http://127.0.0.1:11434/api/chat");
+            QJsonArray messages;
+            messages.append(QJsonObject{{"role", "user"}, {"content", QString("On a scale of 0 to 100, how relevant is this text to the query: '%1'?\nText: %2\nReply only with the number.").arg(query).arg(candidates[i].text)}});
+            json["model"] = m_selectedModel.name.isEmpty() ? "llama3" : m_selectedModel.name;
+            json["messages"] = messages;
+            json["stream"] = false;
+        } else { // LM Studio
+            url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
+            QJsonArray messages;
+            messages.append(QJsonObject{{"role", "user"}, {"content", QString("Rate relevance (0-100) of this text to query: '%1'\nText: %2\nOutput ONLY number.").arg(query).arg(candidates[i].text)}});
+            json["model"] = m_selectedModel.name;
+            json["messages"] = messages;
+        }
+
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(json).toJson());
+        
+        connect(reply, &QNetworkReply::finished, this, [this, reply, state, i]() {
+            if (reply->error() == QNetworkReply::NoError) {
+                QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
+                QString response;
+                if (m_localMode == 1) response = obj["message"].toObject()["content"].toString();
+                else response = obj["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
+                
+                // Extract number
+                bool ok;
+                double score = response.trimmed().split(QRegularExpression("[^0-9.]")).first().toDouble(&ok);
+                if (ok) {
+                    state->results[i].score = (state->results[i].score * 0.3) + (score / 100.0 * 0.7); // Weighted blend
+                }
+            }
+            reply->deleteLater();
+            if (--state->remaining == 0) {
+                std::sort(state->results.begin(), state->results.end(), [](const VectorEntry& a, const VectorEntry& b) {
+                    return a.score > b.score;
+                });
+                emit rerankingReady(state->results);
+            }
+        });
+    }
 }

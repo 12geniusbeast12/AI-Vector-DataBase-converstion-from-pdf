@@ -6,11 +6,14 @@
 #include <QVector>
 #include <QStringList>
 #include "gemini_api.h"
+#include "pdf_processor.h"
 
 class VectorStore;
-class PdfProcessor;
 class QProgressBar;
 class QLabel;
+
+#include <QElapsedTimer>
+#include <QCheckBox>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -29,14 +32,30 @@ private:
     VectorStore *m_store;
     PdfProcessor *m_pdfProcessor;
     QLabel *m_statusLabel;
+    QLabel *m_latencyLabel;
+    QCheckBox *m_hybridCheck;
+    QCheckBox *m_rerankCheck;
+    QLineEdit *m_searchEdit;
+    QComboBox *m_workspaceCombo;
+    QElapsedTimer m_searchTimer;
+    
+    void refreshWorkspaces();
+    
+    // Latency breakdown trackers
+    qint64 m_tEmbed = 0;
+    qint64 m_tSearch = 0;
+    qint64 m_tFusion = 0;
+    qint64 m_tRerank = 0;
     bool m_isIndexing = false;
-    QStringList m_chunkQueue;
+    QVector<Chunk> m_chunkQueue;
     int m_totalChunks = 0;
     int m_processedChunks = 0;
     QString m_currentFileName;
+    QString m_currentDocId;
     QVector<ModelInfo> m_lastDiscoveredModels;
 
-    void chunkAndProcess(const QString& fullText, QProgressBar* progressBar);
+    void chunkAndProcess(const QVector<Chunk>& chunks, QProgressBar* progressBar);
+    void updateResultsTable(const QVector<VectorEntry>& results);
 };
 
 #endif // MAINWINDOW_H

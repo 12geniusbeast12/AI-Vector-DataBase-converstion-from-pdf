@@ -9,6 +9,8 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QVector>
+#include <QMap>
+#include <QVariant>
 
 struct ModelInfo {
     QString name;
@@ -26,17 +28,20 @@ public:
     void setSelectedModel(const ModelInfo& model) { m_selectedModel = model; }
     
     void processPdf(const QString& filePath);
-    void getEmbeddings(const QString& text);
+    void getEmbeddings(const QString& text, const QMap<QString, QVariant>& metadata = {});
+    void rerank(const QString& query, const QVector<VectorEntry>& candidates);
     void discoverModels();
-
+    
 signals:
     void pdfProcessed(const QString& text);
-    void embeddingsReady(const QString& text, const QVector<float>& embedding);
+    void embeddingsReady(const QString& text, const QVector<float>& embedding, const QMap<QString, QVariant>& metadata = {});
+    void rerankingReady(const QVector<VectorEntry>& rerankedResults);
     void discoveredModelsReady(const QVector<ModelInfo>& models);
     void errorOccurred(const QString& error);
 
 private slots:
-    void onEmbeddingsReply(QNetworkReply* reply, const QString& originalText);
+    void onEmbeddingsReply(QNetworkReply* reply, const QString& originalText, const QMap<QString, QVariant>& metadata);
+    void onRerankReply(QNetworkReply* reply, QVector<VectorEntry> candidates);
     void onPdfReply(QNetworkReply* reply);
 
 private:

@@ -6,6 +6,11 @@
 #include <fpdfview.h>
 #include <fpdf_text.h>
 
+struct Chunk {
+    QString text;
+    int pageNum;
+};
+
 class PdfProcessor : public QObject {
     Q_OBJECT
 public:
@@ -15,7 +20,8 @@ public:
     static void initLibrary();
     static void destroyLibrary();
 
-    QString extractText(const QString& filePath);
+    QVector<Chunk> extractChunks(const QString& filePath);
+    static QString generateDocId(const QString& filePath);
 
 signals:
     void progressUpdated(int page, int total);

@@ -31,7 +31,7 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(centralWidget);
     QVBoxLayout *layout = new QVBoxLayout(centralWidget);
 
-    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v3.3.3 - PRO)", this);
+    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v3.6.0 - Advanced RAG)", this);
     titleLabel->setStyleSheet("font-size: 22px; font-weight: bold; color: #e67e22; margin-bottom: 5px;");
     layout->addWidget(titleLabel);
 
@@ -57,14 +57,40 @@ MainWindow::MainWindow(QWidget *parent)
     layout->addLayout(settingsLayout);
 
     QHBoxLayout *dbRow = new QHBoxLayout();
-    QPushButton *dbNameBtn = new QPushButton("Step 0: Set/Switch Database", this);
-    dbNameBtn->setStyleSheet("background-color: #3498db; color: white; font-weight: bold;");
-    QLabel *currentDbLabel = new QLabel("Current DB: vector_db.sqlite", this);
-    currentDbLabel->setStyleSheet("color: #2980b9; font-weight: bold;");
-    dbRow->addWidget(dbNameBtn);
-    dbRow->addWidget(currentDbLabel);
+    m_workspaceCombo = new QComboBox(this);
+    m_workspaceCombo->setMinimumWidth(200);
+    refreshWorkspaces();
+    
+    QPushButton *addDbBtn = new QPushButton("+ New Workspace", this);
+    addDbBtn->setStyleSheet("background-color: #3498db; color: white; font-weight: bold;");
+    
+    dbRow->addWidget(new QLabel("Workspace:", this));
+    dbRow->addWidget(m_workspaceCombo);
+    dbRow->addWidget(addDbBtn);
     dbRow->addStretch();
     layout->addLayout(dbRow);
+
+    connect(m_workspaceCombo, &QComboBox::currentTextChanged, [this](const QString& dbName) {
+        if (!dbName.isEmpty()) {
+            m_store->close();
+            m_store->setPath(dbName);
+            m_store->init();
+            m_statusLabel->setText(QString("Switched to workspace: %1").arg(dbName));
+        }
+    });
+
+    connect(addDbBtn, &QPushButton::clicked, [this]() {
+        bool ok;
+        QString name = QInputDialog::getText(this, "New Workspace", "Enter name (e.g. Finance):", QLineEdit::Normal, "", &ok);
+        if (ok && !name.isEmpty()) {
+            if (!name.endsWith(".sqlite")) name += ".sqlite";
+            m_store->close();
+            m_store->setPath(name);
+            m_store->init();
+            refreshWorkspaces();
+            m_workspaceCombo->setCurrentText(name);
+        }
+    });
 
     QHBoxLayout *fileLayout = new QHBoxLayout();
     QPushButton *selectBtn = new QPushButton("Step 1: Select PDF to Index", this);
@@ -97,23 +123,41 @@ MainWindow::MainWindow(QWidget *parent)
     layout->addWidget(progressBar);
 
     QHBoxLayout *searchLayout = new QHBoxLayout();
-    QLineEdit *searchEdit = new QLineEdit(this);
-    searchEdit->setPlaceholderText("Search your local vector database...");
+    m_searchEdit = new QLineEdit(this);
+    m_searchEdit->setPlaceholderText("Search your local vector database...");
+    
+    m_hybridCheck = new QCheckBox("Hybrid Search (RRF)", this);
+    m_hybridCheck->setChecked(true);
+    
+    m_rerankCheck = new QCheckBox("Stage 2: Rerank", this);
+    m_rerankCheck->setChecked(false);
+    
     QPushButton *searchBtn = new QPushButton("Search", this);
-    searchLayout->addWidget(searchEdit);
+    searchLayout->addWidget(m_searchEdit);
+    searchLayout->addWidget(m_hybridCheck);
+    searchLayout->addWidget(m_rerankCheck);
     searchLayout->addWidget(searchBtn);
     layout->addLayout(searchLayout);
 
     // Results
-    QTableWidget *resultsTable = new QTableWidget(0, 3, this);
-    resultsTable->setHorizontalHeaderLabels({"Text Chunk", "Source File", "Relevance"});
+    QTableWidget *resultsTable = new QTableWidget(0, 4, this);
+    resultsTable->setHorizontalHeaderLabels({"Text Chunk", "Source File", "Page", "Relevance"});
     resultsTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     resultsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    resultsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     layout->addWidget(resultsTable);
 
     m_statusLabel = new QLabel("Database: Initializing...", this);
     m_statusLabel->setStyleSheet("color: #7f8c8d; font-style: italic;");
-    layout->addWidget(m_statusLabel);
+    
+    m_latencyLabel = new QLabel("", this);
+    m_latencyLabel->setStyleSheet("color: #27ae60; font-weight: bold;");
+    
+    QHBoxLayout *footerLayout = new QHBoxLayout();
+    footerLayout->addWidget(m_statusLabel);
+    footerLayout->addStretch();
+    footerLayout->addWidget(m_latencyLabel);
+    layout->addLayout(footerLayout);
 
     // Backend
     m_api = new GeminiApi(apiKeyEdit->text(), this);
@@ -206,16 +250,18 @@ MainWindow::MainWindow(QWidget *parent)
         QString fileName = QFileDialog::getOpenFileName(this, "Open PDF", "", "PDF Files (*.pdf)");
         if (!fileName.isEmpty()) {
             m_currentFileName = QFileInfo(fileName).fileName();
+            m_currentDocId = PdfProcessor::generateDocId(fileName);
             fileLabel->setText(fileName);
             progressBar->setValue(0);
-            progressBar->setFormat("Extracting text...");
+            progressBar->setFormat("Extracting chunks...");
             m_isIndexing = true;
-            QString extractedText = m_pdfProcessor->extractText(fileName);
-            if (!extractedText.isEmpty()) {
-                chunkAndProcess(extractedText, progressBar);
+            
+            QVector<Chunk> chunks = m_pdfProcessor->extractChunks(fileName);
+            if (!chunks.isEmpty()) {
+                chunkAndProcess(chunks, progressBar);
             } else {
                 m_isIndexing = false;
-                QMessageBox::critical(this, "Error", "Failed to extract text from PDF locally.");
+                QMessageBox::critical(this, "Error", "Failed to extract chunks from PDF locally.");
             }
         }
     });
@@ -254,36 +300,44 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_api, &GeminiApi::errorOccurred, this, &MainWindow::handleError);
     
-    connect(searchBtn, &QPushButton::clicked, [this, searchEdit]() {
-        if (!searchEdit->text().isEmpty()) {
+    connect(searchBtn, &QPushButton::clicked, [this]() {
+        if (!m_searchEdit->text().isEmpty()) {
             m_isIndexing = false;
-            m_api->getEmbeddings(searchEdit->text());
+            m_searchTimer.start();
+            m_statusLabel->setText("Generating query embedding...");
+            m_api->getEmbeddings(m_searchEdit->text());
         }
     });
 
-    connect(m_api, &GeminiApi::embeddingsReady, this, [this, resultsTable, progressBar](const QString& text, const QVector<float>& embedding) {
-        qDebug() << "Embeddings ready for:" << (text.length() > 20 ? text.left(20) + "..." : text) 
-                 << "Indexing Mode:" << m_isIndexing;
+    connect(m_api, &GeminiApi::embeddingsReady, this, [this, resultsTable, progressBar](const QString& text, const QVector<float>& embedding, const QMap<QString, QVariant>& metadata) {
         if (!m_isIndexing) { 
             // SEARCH MODE
-            auto results = m_store->search(embedding);
-            qDebug() << "Search returned" << results.size() << "results";
+            m_tEmbed = m_searchTimer.elapsed();
             
-            QMessageBox::information(this, "Search Results", 
-                QString("Found %1 relevant matches across %2 total database entries.")
-                .arg(results.size()).arg(m_store->count()));
-
-            resultsTable->setRowCount(0);
-            for (const auto& entry : results) {
-                int row = resultsTable->rowCount();
-                resultsTable->insertRow(row);
-                resultsTable->setItem(row, 0, new QTableWidgetItem(entry.text));
-                resultsTable->setItem(row, 1, new QTableWidgetItem(entry.sourceFile));
-                resultsTable->setItem(row, 2, new QTableWidgetItem(QString::number(entry.score, 'f', 4)));
+            QVector<VectorEntry> results;
+            if (m_hybridCheck->isChecked()) {
+                results = m_store->hybridSearch(m_searchEdit->text(), embedding);
+            } else {
+                results = m_store->search(embedding);
+            }
+            
+            m_tSearch = m_searchTimer.elapsed() - m_tEmbed;
+            
+            if (m_rerankCheck->isChecked() && !results.isEmpty()) {
+                m_statusLabel->setText(QString("Hybrid found %1 potential hits. Reranking top 10...").arg(results.size()));
+                m_api->rerank(m_searchEdit->text(), results.mid(0, 10));
+            } else {
+                // Skip reranking
+                m_tRerank = 0;
+                updateResultsTable(results);
             }
         } else {
             // INDEXING MODE
-            m_store->addEntry(text, embedding, m_currentFileName);
+            int pageNum = metadata.value("page").toInt();
+            int chunkIdx = metadata.value("index").toInt();
+            QString modelSig = metadata.value("model_sig").toString();
+            
+            m_store->addEntry(text, embedding, m_currentFileName, m_currentDocId, pageNum, chunkIdx, modelSig);
             m_processedChunks++;
             progressBar->setValue(m_processedChunks);
             
@@ -292,11 +346,45 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
+    connect(m_api, &GeminiApi::rerankingReady, this, [this](const QVector<VectorEntry>& results) {
+        m_tRerank = m_searchTimer.elapsed() - m_tEmbed - m_tSearch;
+        updateResultsTable(results);
+    });
+
     resize(900, 650);
 }
 
 MainWindow::~MainWindow() {
     delete m_store;
+}
+
+void MainWindow::updateResultsTable(const QVector<VectorEntry>& results) {
+    QTableWidget *resultsTable = findChild<QTableWidget*>();
+    if (!resultsTable) return;
+    
+    int totalLatency = m_searchTimer.elapsed();
+    m_latencyLabel->setText(QString("Total: %1ms (Embed: %2ms, Search: %3ms, Rerank: %4ms)")
+                            .arg(totalLatency).arg(m_tEmbed).arg(m_tSearch).arg(m_tRerank));
+    
+    m_statusLabel->setText(QString("Found %1 results.").arg(results.size()));
+    
+    if (!results.isEmpty()) {
+        // Log the absolute winner with all ranks/latencies
+        m_store->logRetrieval(m_searchEdit->text(), results[0].semanticRank, results[0].keywordRank, 1, 
+                              m_tEmbed, m_tSearch, 0, m_tRerank, results[0].score);
+    }
+
+    resultsTable->setRowCount(0);
+    for (const auto& entry : results) {
+        int row = resultsTable->rowCount();
+        resultsTable->insertRow(row);
+        resultsTable->setItem(row, 0, new QTableWidgetItem(entry.text));
+        resultsTable->setItem(row, 1, new QTableWidgetItem(entry.sourceFile));
+        resultsTable->setItem(row, 2, new QTableWidgetItem(QString::number(entry.pageNum)));
+        
+        QString label = m_rerankCheck->isChecked() ? " (Refined)" : (m_hybridCheck->isChecked() ? " (Hybrid)" : "");
+        resultsTable->setItem(row, 3, new QTableWidgetItem(QString::number(entry.score, 'f', 4) + label));
+    }
 }
 
 void MainWindow::handlePdfProcessed(const QString& text) { }
@@ -309,40 +397,20 @@ void MainWindow::processNextChunk(QProgressBar* progressBar) {
     if (m_chunkQueue.isEmpty()) {
         m_isIndexing = false;
         progressBar->setFormat("Indexing Complete!");
-        
         m_statusLabel->setText(QString("Database Ready: %1 chunks indexed.").arg(m_store->count()));
-        QMessageBox::information(this, "Indexing Success", 
-            QString("Successfully indexed %1 chunks.\nVector Database now has %2 total entries.")
-            .arg(m_totalChunks).arg(m_store->count()));
         return;
     }
 
-    QString next = m_chunkQueue.takeFirst();
-    m_api->getEmbeddings(next);
+    Chunk next = m_chunkQueue.takeFirst();
+    QMap<QString, QVariant> metadata;
+    metadata["page"] = next.pageNum;
+    metadata["index"] = m_processedChunks;
+    
+    m_api->getEmbeddings(next.text, metadata);
 }
 
-void MainWindow::chunkAndProcess(const QString& fullText, QProgressBar* progressBar) {
-    qDebug() << "Refined Chunking logic starting...";
-    
-    QStringList paragraphs = fullText.split("\n\n", Qt::SkipEmptyParts);
-    m_chunkQueue.clear();
-    
-    const int MAX_CHUNK_SIZE = 800;
-    
-    for (const QString& para : paragraphs) {
-        QString trimmed = para.trimmed();
-        if (trimmed.isEmpty()) continue;
-        
-        if (trimmed.length() <= MAX_CHUNK_SIZE) {
-            if (trimmed.length() > 20) m_chunkQueue.append(trimmed);
-        } else {
-            for (int i = 0; i < trimmed.length(); i += MAX_CHUNK_SIZE) {
-                QString sub = trimmed.mid(i, MAX_CHUNK_SIZE);
-                if (sub.length() > 20) m_chunkQueue.append(sub);
-            }
-        }
-    }
-
+void MainWindow::chunkAndProcess(const QVector<Chunk>& chunks, QProgressBar* progressBar) {
+    m_chunkQueue = chunks;
     m_totalChunks = m_chunkQueue.size();
     m_processedChunks = 0;
     
@@ -355,6 +423,23 @@ void MainWindow::chunkAndProcess(const QString& fullText, QProgressBar* progress
     progressBar->setValue(0);
     progressBar->setFormat("Indexing Chunks: %v / %m");
 
-    // Start the sequential processing chain
     processNextChunk(progressBar);
+}
+
+void MainWindow::refreshWorkspaces() {
+    m_workspaceCombo->blockSignals(true);
+    m_workspaceCombo->clear();
+    
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir dir(dataDir);
+    QStringList filters;
+    filters << "*.sqlite";
+    
+    QStringList files = dir.entryList(filters, QDir::Files, QDir::Name);
+    if (files.isEmpty()) {
+        files << "vector_db.sqlite"; // Default
+    }
+    
+    m_workspaceCombo->addItems(files);
+    m_workspaceCombo->blockSignals(false);
 }

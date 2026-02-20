@@ -27,7 +27,6 @@ bool VectorStore::init() {
         m_db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
     }
     
-    // Ensure we use a dedicated 'data' folder in AppData
     QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
     
@@ -43,56 +42,95 @@ bool VectorStore::init() {
         return false;
     }
 
-    QSqlQuery query(m_db);
-    bool success = query.exec("CREATE TABLE IF NOT EXISTS embeddings ("
-                              "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                              "source_file TEXT, "
-                              "text_chunk TEXT, "
-                              "vector_blob BLOB)");
+    QSqlQuery q(m_db);
     
-    if (!success) {
-        qDebug() << "Error creating table:" << query.lastError().text();
-    } else {
-        // Auto-migration: check if source_file exists
-        query.exec("PRAGMA table_info(embeddings)");
-        bool hasSource = false;
-        while(query.next()) {
-            if (query.value(1).toString() == "source_file") hasSource = true;
-        }
-        if (!hasSource) {
-            query.exec("ALTER TABLE embeddings ADD COLUMN source_file TEXT");
-            qDebug() << "Database migrated: Added 'source_file' column.";
-        }
-        qDebug() << "Database table 'embeddings' verified successfully.";
+    // Check schema version
+    q.exec("PRAGMA user_version");
+    int version = 0;
+    if (q.next()) version = q.value(0).toInt();
+    qDebug() << "Current Schema Version:" << version;
+
+    // Initialization (v0)
+    if (version < 1) {
+        q.exec("CREATE TABLE IF NOT EXISTS embeddings ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+               "source_file TEXT, "
+               "text_chunk TEXT, "
+               "vector_blob BLOB)");
+        q.exec("PRAGMA user_version = 1");
     }
-    return success;
+
+    // Migration to v2: Basic metadata
+    if (version < 2) {
+        q.exec("ALTER TABLE embeddings ADD COLUMN doc_id TEXT");
+        q.exec("ALTER TABLE embeddings ADD COLUMN page_num INTEGER");
+        q.exec("ALTER TABLE embeddings ADD COLUMN model_sig TEXT");
+        q.exec("ALTER TABLE embeddings ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP");
+        q.exec("PRAGMA user_version = 2");
+        qDebug() << "Migrated database to v2 (Core Metadata).";
+    }
+
+    // Migration to v5: Granular Ranks and Latencies
+    if (version < 5) {
+        q.exec("DROP TABLE IF EXISTS retrieval_logs"); // Safe to reset logs for diagnostic upgrade
+        q.exec("CREATE TABLE IF NOT EXISTS retrieval_logs ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+               "query TEXT, "
+               "semantic_rank INTEGER, "
+               "keyword_rank INTEGER, "
+               "final_rank INTEGER, "
+               "latency_embedding INTEGER, "
+               "latency_search INTEGER, "
+               "latency_fusion INTEGER, "
+               "latency_rerank INTEGER, "
+               "top_score REAL, "
+               "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+        q.exec("PRAGMA user_version = 5");
+        qDebug() << "Migrated database to v5 (Advanced Diagnostics).";
+    }
+
+    return true;
 }
 
-bool VectorStore::addEntry(const QString& text, const QVector<float>& embedding, const QString& sourceFile) {
+bool VectorStore::addEntry(const QString& text, const QVector<float>& embedding, 
+                           const QString& sourceFile, const QString& docId, 
+                           int pageNum, int chunkIdx, const QString& modelSig) {
     if (!m_db.isOpen()) {
         qDebug() << "Cannot add entry: Database is not open!";
         return false;
     }
     QSqlQuery query(m_db);
-    query.prepare("INSERT INTO embeddings (source_file, text_chunk, vector_blob) VALUES (:source, :text, :blob)");
+    query.prepare("INSERT INTO embeddings (source_file, text_chunk, vector_blob, doc_id, page_num, chunk_idx, model_sig, model_dim) "
+                  "VALUES (:source, :text, :blob, :docid, :page, :index, :sig, :dim)");
+    
     query.bindValue(":source", sourceFile);
     query.bindValue(":text", text);
     query.bindValue(":blob", vectorToBlob(embedding));
+    query.bindValue(":docid", docId);
+    query.bindValue(":page", pageNum);
+    query.bindValue(":index", chunkIdx);
+    query.bindValue(":sig", modelSig);
+    query.bindValue(":dim", embedding.size());
 
     if (!query.exec()) {
         qDebug() << "Insert failed:" << query.lastError().text();
         return false;
     }
+    
+    // Index into FTS5
+    qlonglong lastId = query.lastInsertId().toLongLong();
+    QSqlQuery ftsQuery(m_db);
+    ftsQuery.prepare("INSERT INTO embeddings_fts(rowid, text_chunk) VALUES (:id, :text)");
+    ftsQuery.bindValue(":id", lastId);
+    ftsQuery.bindValue(":text", text);
+    ftsQuery.exec();
+    
     return true;
 }
 
 QVector<VectorEntry> VectorStore::search(const QVector<float>& queryEmbedding, int limit) {
-    QVector<VectorEntry> results;
-    QSqlQuery query("SELECT id, text_chunk, vector_blob, source_file FROM embeddings", m_db);
-
-    if (query.lastError().isValid()) {
-        qDebug() << "Search query error:" << query.lastError().text();
-    }
+    QVector<VectorEntry> semanticResults;
+    QSqlQuery query("SELECT id, text_chunk, vector_blob, source_file, doc_id, page_num, model_sig FROM embeddings", m_db);
 
     while (query.next()) {
         VectorEntry entry;
@@ -100,20 +138,123 @@ QVector<VectorEntry> VectorStore::search(const QVector<float>& queryEmbedding, i
         entry.text = query.value(1).toString();
         entry.embedding = blobToVector(query.value(2).toByteArray());
         entry.sourceFile = query.value(3).toString();
+        entry.docId = query.value(4).toString();
+        entry.pageNum = query.value(5).toInt();
+        entry.modelSig = query.value(6).toString();
+        
         entry.score = cosineSimilarity(queryEmbedding, entry.embedding);
-        results.append(entry);
+        semanticResults.append(entry);
     }
 
-    // Sort by score descending
-    std::sort(results.begin(), results.end(), [](const VectorEntry& a, const VectorEntry& b) {
+    std::sort(semanticResults.begin(), semanticResults.end(), [](const VectorEntry& a, const VectorEntry& b) {
         return a.score > b.score;
     });
 
-    if (results.size() > limit) {
-        results.resize(limit);
+    if (semanticResults.size() > limit) semanticResults.resize(limit);
+    return semanticResults;
+}
+
+QVector<VectorEntry> VectorStore::hybridSearch(const QString& queryText, const QVector<float>& queryEmbedding, int limit) {
+    QElapsedTimer timer;
+    timer.start();
+
+    // 1. Query Classification (Heuristic)
+    QStringList words = queryText.split(" ", Qt::SkipEmptyParts);
+    bool isShortQuery = words.size() <= 3;
+    
+    // 2. Semantic Search
+    auto semanticRes = search(queryEmbedding, limit * 3); 
+    qint64 tSearch = timer.elapsed();
+
+    // 3. Keyword Search (FTS5)
+    QVector<VectorEntry> keywordRes;
+    QSqlQuery q(m_db);
+    q.prepare("SELECT rowid, text_chunk, source_file, page_num FROM embeddings "
+              "WHERE id IN (SELECT rowid FROM embeddings_fts WHERE embeddings_fts MATCH :query) LIMIT :limit");
+    q.bindValue(":query", queryText);
+    q.bindValue(":limit", limit * 3);
+    q.exec();
+    
+    while(q.next()) {
+        VectorEntry e;
+        e.id = q.value(0).toInt();
+        e.text = q.value(1).toString();
+        e.sourceFile = q.value(2).toString();
+        e.pageNum = q.value(3).toInt();
+        keywordRes.append(e);
     }
 
-    return results;
+    // 4. Reciprocal Rank Fusion (RRF) with Query-Aware Weights
+    QMap<int, double> rrfScores;
+    QMap<int, VectorEntry> entryMap;
+    QMap<int, int> semanticRanks;
+    QMap<int, int> keywordRanks;
+    
+    const double K = 60.0;
+    const double weightSemantic = isShortQuery ? 0.4 : 1.0;
+    const double weightKeyword = isShortQuery ? 1.0 : 0.6;
+
+    for (int i = 0; i < semanticRes.size(); ++i) {
+        int id = semanticRes[i].id;
+        semanticRanks[id] = i + 1;
+        rrfScores[id] += weightSemantic * (1.0 / (K + i + 1));
+        entryMap[id] = semanticRes[i];
+    }
+
+    for (int i = 0; i < keywordRes.size(); ++i) {
+        int id = keywordRes[i].id;
+        keywordRanks[id] = i + 1;
+        rrfScores[id] += weightKeyword * (1.0 / (K + i + 1));
+        if (!entryMap.contains(id)) {
+            QSqlQuery fetch(m_db);
+            fetch.prepare("SELECT text_chunk, source_file, page_num, model_sig FROM embeddings WHERE id = :id");
+            fetch.bindValue(":id", id);
+            if (fetch.exec() && fetch.next()) {
+                VectorEntry fe;
+                fe.id = id;
+                fe.text = fetch.value(0).toString();
+                fe.sourceFile = fetch.value(1).toString();
+                fe.pageNum = fetch.value(2).toInt();
+                fe.modelSig = fetch.value(3).toString();
+                entryMap[id] = fe;
+            }
+        }
+    }
+
+    QVector<VectorEntry> finalResults;
+    for (auto it = rrfScores.begin(); it != rrfScores.end(); ++it) {
+        int id = it.key();
+        VectorEntry e = entryMap[id];
+        e.score = it.value(); // RRF score
+        e.semanticRank = semanticRanks.value(id, 0);
+        e.keywordRank = keywordRanks.value(id, 0);
+        finalResults.append(e);
+    }
+
+    std::sort(finalResults.begin(), finalResults.end(), [](const VectorEntry& a, const VectorEntry& b) {
+        return a.score > b.score;
+    });
+
+    if (finalResults.size() > limit) finalResults.resize(limit);
+    return finalResults;
+}
+
+void VectorStore::logRetrieval(const QString& query, int sRank, int kRank, int fRank, 
+                               int lEmbed, int lSearch, int lFusion, int lRerank, double topScore) {
+    QSqlQuery q(m_db);
+    q.prepare("INSERT INTO retrieval_logs (query, semantic_rank, keyword_rank, final_rank, "
+              "latency_embedding, latency_search, latency_fusion, latency_rerank, top_score) "
+              "VALUES (:query, :sr, :kr, :fr, :le, :ls, :lf, :lr, :score)");
+    q.bindValue(":query", query);
+    q.bindValue(":sr", sRank);
+    q.bindValue(":kr", kRank);
+    q.bindValue(":fr", fRank);
+    q.bindValue(":le", lEmbed);
+    q.bindValue(":ls", lSearch);
+    q.bindValue(":lf", lFusion);
+    q.bindValue(":lr", lRerank);
+    q.bindValue(":score", topScore);
+    q.exec();
 }
 
 int VectorStore::count() {
