@@ -117,7 +117,11 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
         json["prompt"] = prompt;
         json["stream"] = false;
     } else { // LM Studio
-        json["model"] = m_selectedModel.name;
+        QString modelStr = m_selectedModel.name;
+        if (modelStr.isEmpty() || modelStr.toLower().contains("embed") || modelStr.toLower().contains("nomic")) {
+            modelStr = "local-model";
+        }
+        json["model"] = modelStr;
         QJsonArray messages;
         messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
         json["messages"] = messages;
@@ -181,7 +185,11 @@ void GeminiApi::synthesizeResponse(const QString& query, const QStringList& cont
         json["prompt"] = prompt;
         json["stream"] = false;
     } else { // LM Studio
-        json["model"] = m_selectedModel.name;
+        QString modelStr = m_selectedModel.name;
+        if (modelStr.isEmpty() || modelStr.toLower().contains("embed") || modelStr.toLower().contains("nomic")) {
+            modelStr = "local-model";
+        }
+        json["model"] = modelStr;
         QJsonArray messages;
         messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
         json["messages"] = messages;
@@ -393,7 +401,11 @@ void GeminiApi::rerank(const QString& query, const QVector<VectorEntry>& candida
             url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
             QJsonArray messages;
             messages.append(QJsonObject{{"role", "user"}, {"content", QString("Rate relevance (0-100) of this text to query: '%1'\nText: %2\nOutput ONLY number.").arg(query).arg(candidates[i].text)}});
-            json["model"] = m_selectedModel.name;
+            QString model = m_selectedModel.name;
+            if (model.isEmpty() || model.toLower().contains("embed") || model.toLower().contains("nomic")) {
+                model = "local-model";
+            }
+            json["model"] = model;
             json["messages"] = messages;
         }
 
