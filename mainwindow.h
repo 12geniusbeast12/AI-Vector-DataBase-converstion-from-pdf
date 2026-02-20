@@ -16,6 +16,10 @@ class QComboBox;
 
 #include <QElapsedTimer>
 #include <QCheckBox>
+#include <QPushButton>
+#include <QTextEdit>
+#include <QDialog>
+#include <QVBoxLayout>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -26,8 +30,12 @@ public:
 
 private slots:
     void handlePdfProcessed(const QString& text);
+    void handleSummaryReady(const QString& summary, const QMap<QString, QVariant>& metadata);
+    void handleSynthesisReady(const QString& report);
     void handleError(const QString& error);
     void processNextChunk(QProgressBar* progressBar);
+    void processNextSummary(QProgressBar* progressBar);
+    void onDeepDiveRequested();
 
 private:
     GeminiApi *m_api;
@@ -38,6 +46,7 @@ private:
     QCheckBox *m_hybridCheck;
     QCheckBox *m_rerankCheck;
     QLineEdit *m_searchEdit;
+    QPushButton *m_deepDiveBtn;
     QComboBox *m_workspaceCombo;
     QElapsedTimer m_searchTimer;
     
@@ -52,6 +61,13 @@ private:
     QVector<Chunk> m_chunkQueue;
     int m_totalChunks = 0;
     int m_processedChunks = 0;
+    
+    // Phase 4 Summary State
+    QMap<QString, QString> m_sectionBuffer;
+    QStringList m_summaryQueue;
+    int m_totalSummaries = 0;
+    int m_processedSummaries = 0;
+
     QString m_currentFileName;
     QString m_currentDocId;
     QVector<ModelInfo> m_lastDiscoveredModels;

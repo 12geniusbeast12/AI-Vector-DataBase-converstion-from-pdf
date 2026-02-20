@@ -1,5 +1,8 @@
 #include "vector_store.h"
 #include <QSqlQuery>
+#include <QRegularExpression>
+#include <QMessageBox>
+#include <QHeaderView>
 #include <QVariant>
 #include <QDebug>
 #include <QCoreApplication>
@@ -101,19 +104,54 @@ bool VectorStore::init() {
         qDebug() << "Migrated database to v6 (Schema Integrity Fix).";
     }
 
+    // Migration to v7: Textbook Awareness (Chapters & Sections)
+    if (version < 7) {
+        q.exec("ALTER TABLE embeddings ADD COLUMN chapter_title TEXT");
+        q.exec("ALTER TABLE embeddings ADD COLUMN section_title TEXT");
+        q.exec("ALTER TABLE embeddings ADD COLUMN chunk_type TEXT DEFAULT 'text'");
+        q.exec("PRAGMA user_version = 7");
+        qDebug() << "Migrated database to v7 (Textbook Intelligence).";
+    }
+
+    // Migration to v8: Advanced Hierarchy (Path & Level)
+    if (version < 8) {
+        q.exec("ALTER TABLE embeddings ADD COLUMN heading_path TEXT");
+        q.exec("ALTER TABLE embeddings ADD COLUMN heading_level INTEGER DEFAULT 0");
+        q.exec("PRAGMA user_version = 8");
+        qDebug() << "Migrated database to v8 (Advanced Hierarchy).";
+    }
+
+    // Migration to v9: Lexical Expansion (Heading Slot)
+    if (version < 9) {
+        q.exec("ALTER TABLE embeddings ADD COLUMN heading_vec_blob BLOB");
+        q.exec("PRAGMA user_version = 9");
+        qDebug() << "Migrated database to v9 (Lexical Expansion).";
+    }
+
+    // Migration to v10: Chunk Intelligence (Metrics & Lists)
+    if (version < 10) {
+        q.exec("ALTER TABLE embeddings ADD COLUMN sentence_count INTEGER DEFAULT 0");
+        q.exec("ALTER TABLE embeddings ADD COLUMN list_type TEXT");
+        q.exec("ALTER TABLE embeddings ADD COLUMN list_length INTEGER DEFAULT 0");
+        q.exec("PRAGMA user_version = 10");
+        qDebug() << "Migrated database to v10 (Chunk Intelligence).";
+    }
+
     return true;
 }
 
 bool VectorStore::addEntry(const QString& text, const QVector<float>& embedding, 
                            const QString& sourceFile, const QString& docId, 
-                           int pageNum, int chunkIdx, const QString& modelSig) {
+                           int pageNum, int chunkIdx, const QString& modelSig,
+                           const QString& path, int level, const QString& chunkType,
+                           int sCount, const QString& lType, int lLen) {
     if (!m_db.isOpen()) {
         qDebug() << "Cannot add entry: Database is not open!";
         return false;
     }
     QSqlQuery query(m_db);
-    query.prepare("INSERT INTO embeddings (source_file, text_chunk, vector_blob, doc_id, page_num, chunk_idx, model_sig, model_dim) "
-                  "VALUES (:source, :text, :blob, :docid, :page, :index, :sig, :dim)");
+    query.prepare("INSERT INTO embeddings (source_file, text_chunk, vector_blob, doc_id, page_num, chunk_idx, model_sig, model_dim, heading_path, heading_level, chunk_type, sentence_count, list_type, list_length) "
+                  "VALUES (:source, :text, :blob, :docid, :page, :index, :sig, :dim, :path, :level, :type, :scount, :ltype, :llen)");
     
     query.bindValue(":source", sourceFile);
     query.bindValue(":text", text);
@@ -123,18 +161,32 @@ bool VectorStore::addEntry(const QString& text, const QVector<float>& embedding,
     query.bindValue(":index", chunkIdx);
     query.bindValue(":sig", modelSig);
     query.bindValue(":dim", embedding.size());
+    query.bindValue(":path", path);
+    query.bindValue(":level", level);
+    query.bindValue(":type", chunkType);
+    query.bindValue(":scount", sCount);
+    query.bindValue(":ltype", lType);
+    query.bindValue(":llen", lLen);
 
     if (!query.exec()) {
         qDebug() << "Insert failed:" << query.lastError().text();
         return false;
     }
     
-    // Index into FTS5
+    // Index into FTS5 with Lexical Boosting (Append Heading Tokens)
     qlonglong lastId = query.lastInsertId().toLongLong();
     QSqlQuery ftsQuery(m_db);
     ftsQuery.prepare("INSERT INTO embeddings_fts(rowid, text_chunk) VALUES (:id, :text)");
+    
+    // Normalize heading path: remove punctuation, keep words for better keyword matching
+    QString headingTokens = path;
+    headingTokens.replace(QRegularExpression("[^a-zA-Z0-9\\s]"), " ");
+    
+    // Final text to index: Structural Meta + Chunk Content
+    QString indexedText = QString("[CONTEXT: %1] %2").arg(headingTokens).arg(text);
+    
     ftsQuery.bindValue(":id", lastId);
-    ftsQuery.bindValue(":text", text);
+    ftsQuery.bindValue(":text", indexedText);
     ftsQuery.exec();
     
     return true;
@@ -166,22 +218,34 @@ QVector<VectorEntry> VectorStore::search(const QVector<float>& queryEmbedding, i
     return semanticResults;
 }
 
+IntentType VectorStore::detectIntent(const QString& queryText, const QVector<float>& queryEmbedding) {
+    QString q = queryText.toLower();
+    
+    // Tier 1: Heuristics
+    if (q.contains(QRegularExpression("\\b(what is|define|definition of|meaning of|theorem|lemma)\\b"))) return IntentType::Definition;
+    if (q.contains(QRegularExpression("\\b(how to|steps to|procedure for|process of)\\b"))) return IntentType::Procedure;
+    if (q.contains(QRegularExpression("\\b(summary|overview|explain chapter|summarize)\\b"))) return IntentType::Summary;
+    if (q.contains(QRegularExpression("\\b(example|illustration|case study|walkthrough)\\b"))) return IntentType::Example;
+    
+    // Tier 2: Semantic Fallback (Future: Compare against prototype vectors)
+    // For now, if no heuristic matches, default to General
+    return IntentType::General;
+}
+
 QVector<VectorEntry> VectorStore::hybridSearch(const QString& queryText, const QVector<float>& queryEmbedding, int limit) {
     QElapsedTimer timer;
     timer.start();
 
-    // 1. Query Classification (Heuristic)
-    QStringList words = queryText.split(" ", Qt::SkipEmptyParts);
-    bool isShortQuery = words.size() <= 3;
+    IntentType intent = detectIntent(queryText, queryEmbedding);
     
-    // 2. Semantic Search
-    auto semanticRes = search(queryEmbedding, limit * 3); 
+    // 1. Semantic Search
+    QVector<VectorEntry> semanticRes = search(queryEmbedding, limit * 3); 
     qint64 tSearch = timer.elapsed();
 
-    // 3. Keyword Search (FTS5)
+    // 2. Keyword Search (FTS5)
     QVector<VectorEntry> keywordRes;
     QSqlQuery q(m_db);
-    q.prepare("SELECT rowid, text_chunk, source_file, page_num FROM embeddings "
+    q.prepare("SELECT rowid, text_chunk, source_file, page_num, heading_path, heading_level, chunk_type, doc_id, sentence_count, list_type, list_length FROM embeddings "
               "WHERE id IN (SELECT rowid FROM embeddings_fts WHERE embeddings_fts MATCH :query) LIMIT :limit");
     q.bindValue(":query", queryText);
     q.bindValue(":limit", limit * 3);
@@ -193,44 +257,71 @@ QVector<VectorEntry> VectorStore::hybridSearch(const QString& queryText, const Q
         e.text = q.value(1).toString();
         e.sourceFile = q.value(2).toString();
         e.pageNum = q.value(3).toInt();
+        e.headingPath = q.value(4).toString();
+        e.headingLevel = q.value(5).toInt();
+        e.chunkType = q.value(6).toString();
+        e.docId = q.value(7).toString();
+        e.sentenceCount = q.value(8).toInt();
+        e.listType = q.value(9).toString();
+        e.listLength = q.value(10).toInt();
         keywordRes.append(e);
     }
 
-    // 4. Reciprocal Rank Fusion (RRF) with Query-Aware Weights
+    // 3. Reciprocal Rank Fusion (RRF) with Intent-Aware Soft Boosting
     QMap<int, double> rrfScores;
     QMap<int, VectorEntry> entryMap;
     QMap<int, int> semanticRanks;
     QMap<int, int> keywordRanks;
     
     const double K = 60.0;
-    const double weightSemantic = isShortQuery ? 0.4 : 1.0;
-    const double weightKeyword = isShortQuery ? 1.0 : 0.6;
+    const double weightSemantic = 0.5;
+    const double weightKeyword = 0.5;
 
+    // Populate entryMap and semanticRanks
     for (int i = 0; i < semanticRes.size(); ++i) {
         int id = semanticRes[i].id;
-        semanticRanks[id] = i + 1;
-        rrfScores[id] += weightSemantic * (1.0 / (K + i + 1));
         entryMap[id] = semanticRes[i];
+        semanticRanks[id] = i + 1;
+        
+        // Base RRF
+        rrfScores[id] = weightSemantic * (1.0 / (K + i + 1));
+        
+        // Soft Boosting Logic
+        double intentBoost = 0.0;
+        const auto& entry = semanticRes[i];
+        if (intent == IntentType::Definition && entry.chunkType == "definition") intentBoost = 0.5;
+        else if (intent == IntentType::Summary && entry.chunkType == "summary") intentBoost = 0.5;
+        else if (intent == IntentType::Procedure && entry.chunkType == "list") intentBoost = 0.3;
+        else if (intent == IntentType::Example && entry.chunkType == "example") intentBoost = 0.4;
+        
+        // Hierarchy-Aware: Broad queries (Summary) favor low levels (Chapter)
+        if (intent == IntentType::Summary && entry.headingLevel == 1) intentBoost += 0.2;
+        // Specific queries (Definition) favor deeper nodes
+        if (intent == IntentType::Definition && entry.headingLevel > 1) intentBoost += 0.1;
+
+        rrfScores[id] += intentBoost;
     }
 
+    // Populate entryMap and keywordRanks
     for (int i = 0; i < keywordRes.size(); ++i) {
         int id = keywordRes[i].id;
         keywordRanks[id] = i + 1;
-        rrfScores[id] += weightKeyword * (1.0 / (K + i + 1));
+        
         if (!entryMap.contains(id)) {
-            QSqlQuery fetch(m_db);
-            fetch.prepare("SELECT text_chunk, source_file, page_num, model_sig FROM embeddings WHERE id = :id");
-            fetch.bindValue(":id", id);
-            if (fetch.exec() && fetch.next()) {
-                VectorEntry fe;
-                fe.id = id;
-                fe.text = fetch.value(0).toString();
-                fe.sourceFile = fetch.value(1).toString();
-                fe.pageNum = fetch.value(2).toInt();
-                fe.modelSig = fetch.value(3).toString();
-                entryMap[id] = fe;
-            }
+            // Need vector_blob for cosine log, model_sig etc (though not used in RRF scoring directly)
+            entryMap[id] = keywordRes[i];
         }
+        
+        // Keyword contribution to RRF
+        rrfScores[id] += weightKeyword * (1.0 / (K + i + 1));
+        
+        // Boost keyword hits too if they match intent
+        double intentBoost = 0.0;
+        const auto& entry = entryMap[id];
+        if (intent == IntentType::Definition && entry.chunkType == "definition") intentBoost = 0.3; // Slightly lower for FTS
+        else if (intent == IntentType::Summary && entry.chunkType == "summary") intentBoost = 0.3;
+        
+        rrfScores[id] += intentBoost;
     }
 
     QVector<VectorEntry> finalResults;
@@ -248,6 +339,10 @@ QVector<VectorEntry> VectorStore::hybridSearch(const QString& queryText, const Q
     });
 
     if (finalResults.size() > limit) finalResults.resize(limit);
+    
+    qint64 tFusion = timer.elapsed() - tSearch;
+    logRetrieval(queryText, 0, 0, finalResults.size(), 0, tSearch, tFusion, 0, finalResults.isEmpty() ? 0 : finalResults[0].score);
+
     return finalResults;
 }
 
@@ -331,6 +426,17 @@ QVector<float> VectorStore::blobToVector(const QByteArray& blob) {
     vec.resize(count);
     memcpy(vec.data(), blob.constData(), blob.size());
     return vec;
+}
+
+QString VectorStore::getContext(const QString& docId, int currentIdx, int offset) {
+    QSqlQuery q(m_db);
+    q.prepare("SELECT text_chunk FROM embeddings WHERE doc_id = :doc AND chunk_idx = :idx");
+    q.bindValue(":doc", docId);
+    q.bindValue(":idx", currentIdx + offset);
+    if (q.exec() && q.next()) {
+        return q.value(0).toString();
+    }
+    return "[No further context]";
 }
 
 double VectorStore::cosineSimilarity(const QVector<float>& v1, const QVector<float>& v2) {

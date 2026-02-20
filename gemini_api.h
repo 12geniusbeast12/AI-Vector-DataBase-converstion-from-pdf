@@ -30,12 +30,16 @@ public:
     
     void processPdf(const QString& filePath);
     void getEmbeddings(const QString& text, const QMap<QString, QVariant>& metadata = {});
+    void generateSummary(const QString& text, const QMap<QString, QVariant>& metadata = {});
+    void synthesizeResponse(const QString& query, const QStringList& contexts, const QMap<QString, QVariant>& metadata = {});
     void rerank(const QString& query, const QVector<VectorEntry>& candidates);
     void discoverModels();
     
 signals:
     void pdfProcessed(const QString& text);
     void embeddingsReady(const QString& text, const QVector<float>& embedding, const QMap<QString, QVariant>& metadata = {});
+    void summaryReady(const QString& summary, const QMap<QString, QVariant>& metadata = {});
+    void synthesisReady(const QString& report, const QMap<QString, QVariant>& metadata = {});
     void rerankingReady(const QVector<VectorEntry>& rerankedResults);
     void discoveredModelsReady(const QVector<ModelInfo>& models);
     void errorOccurred(const QString& error);

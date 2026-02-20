@@ -9,6 +9,12 @@
 struct Chunk {
     QString text;
     int pageNum;
+    QString headingPath;
+    int headingLevel = 0;
+    QString chunkType = "text";
+    int sentenceCount = 0;
+    QString listType = "";
+    int listLength = 0;
 };
 
 class PdfProcessor : public QObject {

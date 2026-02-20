@@ -10,6 +10,9 @@
 #include <QComboBox>
 #include <QTextEdit>
 #include <QFileDialog>
+#include <QNetworkReply>
+#include <QRegularExpression>
+#include <QSqlQuery>
 #include <QProgressBar>
 #include <QLabel>
 #include <QMessageBox>
@@ -137,6 +140,12 @@ MainWindow::MainWindow(QWidget *parent)
     searchLayout->addWidget(m_hybridCheck);
     searchLayout->addWidget(m_rerankCheck);
     searchLayout->addWidget(searchBtn);
+    
+    m_deepDiveBtn = new QPushButton("🧪 Deep Dive Synthesis");
+    m_deepDiveBtn->setStyleSheet("background-color: #6200ee; color: white; font-weight: bold; border-radius: 4px; padding: 4px 8px;");
+    connect(m_deepDiveBtn, &QPushButton::clicked, this, &MainWindow::onDeepDiveRequested);
+    searchLayout->addWidget(m_deepDiveBtn);
+
     layout->addLayout(searchLayout);
 
     // Results
@@ -146,6 +155,33 @@ MainWindow::MainWindow(QWidget *parent)
     resultsTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     resultsTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
     layout->addWidget(resultsTable);
+
+    connect(resultsTable, &QTableWidget::cellDoubleClicked, [this, resultsTable](int row, int col) {
+        QTableWidgetItem *item = resultsTable->item(row, 0);
+        if (!item) return;
+        
+        QString docId = item->data(Qt::UserRole).toString();
+        // Since we didn't store chunk_idx directly in VectorEntry yet (it was local to addEntry),
+        // let's fetch it from the database based on the entry ID (Qt::UserRole + 1)
+        int entryId = item->data(Qt::UserRole + 1).toInt();
+        
+        QSqlQuery q(m_store->database()); // Access the db
+        q.prepare("SELECT chunk_idx, text_chunk FROM embeddings WHERE id = :id");
+        q.bindValue(":id", entryId);
+        if (q.exec() && q.next()) {
+            int idx = q.value(0).toInt();
+            QString currentText = q.value(1).toString();
+            
+            QString prev = m_store->getContext(docId, idx, -1);
+            QString next = m_store->getContext(docId, idx, 1);
+            
+            QMessageBox msg;
+            msg.setWindowTitle("Context Peek (Situation Awareness)");
+            msg.setText(QString("<b>Previous:</b><br>%1<hr><b>Current:</b><br>%2<hr><b>Next:</b><br>%3")
+                        .arg(prev.left(300)).arg(currentText).arg(next.left(300)));
+            msg.exec();
+        }
+    });
 
     m_statusLabel = new QLabel("Database: Initializing...", this);
     m_statusLabel->setStyleSheet("color: #7f8c8d; font-style: italic;");
@@ -278,6 +314,8 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(m_api, &GeminiApi::errorOccurred, this, &MainWindow::handleError);
+    connect(m_api, &GeminiApi::summaryReady, this, &MainWindow::handleSummaryReady);
+    connect(m_api, &GeminiApi::synthesisReady, this, &MainWindow::handleSynthesisReady);
     
     connect(searchBtn, &QPushButton::clicked, [this]() {
         if (!m_searchEdit->text().isEmpty()) {
@@ -315,8 +353,14 @@ MainWindow::MainWindow(QWidget *parent)
             int pageNum = metadata.value("page").toInt();
             int chunkIdx = metadata.value("index").toInt();
             QString modelSig = metadata.value("model_sig").toString();
+            QString headingPath = metadata.value("path").toString();
+            int headingLevel = metadata.value("level").toInt();
+            QString chunkType = metadata.value("type").toString();
+            int sCount = metadata.value("scount").toInt();
+            QString lType = metadata.value("ltype").toString();
+            int lLen = metadata.value("llen").toInt();
             
-            m_store->addEntry(text, embedding, m_currentFileName, m_currentDocId, pageNum, chunkIdx, modelSig);
+            m_store->addEntry(text, embedding, m_currentFileName, m_currentDocId, pageNum, chunkIdx, modelSig, headingPath, headingLevel, chunkType, sCount, lType, lLen);
             m_processedChunks++;
             progressBar->setValue(m_processedChunks);
             
@@ -348,7 +392,6 @@ void MainWindow::updateResultsTable(const QVector<VectorEntry>& results) {
     m_statusLabel->setText(QString("Found %1 results.").arg(results.size()));
     
     if (!results.isEmpty()) {
-        // Log the absolute winner with all ranks/latencies
         m_store->logRetrieval(m_searchEdit->text(), results[0].semanticRank, results[0].keywordRank, 1, 
                               m_tEmbed, m_tSearch, 0, m_tRerank, results[0].score);
     }
@@ -357,7 +400,45 @@ void MainWindow::updateResultsTable(const QVector<VectorEntry>& results) {
     for (const auto& entry : results) {
         int row = resultsTable->rowCount();
         resultsTable->insertRow(row);
-        resultsTable->setItem(row, 0, new QTableWidgetItem(entry.text));
+        
+        // Show stylized breadcrumb Heading Path
+        QString displayContent = entry.text;
+        QString intentLabel;
+        
+        if (!entry.headingPath.isEmpty()) {
+            QString pathHeader = "📍 " + entry.headingPath;
+            QString typeTag = entry.chunkType.toUpper();
+            
+            if (typeTag == "DEFINITION") {
+                pathHeader += " • 📘 DEF";
+                intentLabel = "Matched Definition Intent";
+            } else if (typeTag == "EXAMPLE") {
+                pathHeader += " • 💡 EX";
+                intentLabel = "Matched Example Intent";
+            } else if (typeTag == "SUMMARY") {
+                pathHeader += " • 📝 SUMMARY";
+                intentLabel = "Matched Overview Intent";
+            } else if (typeTag == "LIST") {
+                pathHeader += " • 📝 LIST (" + QString::number(entry.listLength) + ")";
+                if (entry.listType == "numbered") intentLabel = "Matched Procedure Intent";
+            } else {
+                pathHeader += " • " + typeTag;
+            }
+            displayContent = pathHeader + "\n" + QString(50, '-') + "\n" + displayContent;
+        }
+
+        QTableWidgetItem *textItem = new QTableWidgetItem(displayContent);
+        if (!intentLabel.isEmpty()) {
+            textItem->setToolTip("<b>Adaptive Retrieval Boost:</b><br>" + intentLabel);
+            // Add a subtle star or badge indicator if possible (using text prefix for now)
+            if (displayContent.startsWith("📍")) {
+                textItem->setText("✨ " + displayContent);
+            }
+        }
+        textItem->setData(Qt::UserRole, entry.docId);
+        textItem->setData(Qt::UserRole + 1, entry.id); // Using rowid since chunk_idx might vary
+        
+        resultsTable->setItem(row, 0, textItem);
         resultsTable->setItem(row, 1, new QTableWidgetItem(entry.sourceFile));
         resultsTable->setItem(row, 2, new QTableWidgetItem(QString::number(entry.pageNum)));
         
@@ -374,6 +455,13 @@ void MainWindow::handleError(const QString& error) {
 
 void MainWindow::processNextChunk(QProgressBar* progressBar) {
     if (m_chunkQueue.isEmpty()) {
+        if (!m_summaryQueue.isEmpty()) {
+            progressBar->setFormat("Generating Section Summaries: %v / %m");
+            progressBar->setRange(0, m_summaryQueue.size());
+            progressBar->setValue(0);
+            processNextSummary(progressBar);
+            return;
+        }
         m_isIndexing = false;
         progressBar->setFormat("Indexing Complete!");
         m_statusLabel->setText(QString("Database Ready: %1 chunks indexed.").arg(m_store->count()));
@@ -384,8 +472,107 @@ void MainWindow::processNextChunk(QProgressBar* progressBar) {
     QMap<QString, QVariant> metadata;
     metadata["page"] = next.pageNum;
     metadata["index"] = m_processedChunks;
+    metadata["path"] = next.headingPath;
+    metadata["level"] = next.headingLevel;
+    metadata["type"] = next.chunkType;
+    metadata["scount"] = next.sentenceCount;
+    metadata["ltype"] = next.listType;
+    metadata["llen"] = next.listLength;
     
     m_api->getEmbeddings(next.text, metadata);
+}
+
+void MainWindow::processNextSummary(QProgressBar* progressBar) {
+    if (m_summaryQueue.isEmpty()) {
+        m_isIndexing = false;
+        progressBar->setFormat("Indexing Complete (with Summaries)!");
+        m_statusLabel->setText(QString("Database Ready: %1 chunks indexed.").arg(m_store->count()));
+        return;
+    }
+
+    QString path = m_summaryQueue.takeFirst();
+    QString text = m_sectionBuffer[path];
+    
+    QMap<QString, QVariant> metadata;
+    metadata["path"] = path;
+    metadata["type"] = "summary";
+    metadata["level"] = 1; // Summaries are top-level
+    
+    // Limit summary input to avoid prompt overflows (take first 5000 chars)
+    m_api->generateSummary(text.left(5000), metadata);
+}
+
+void MainWindow::handleSummaryReady(const QString& summary, const QMap<QString, QVariant>& metadata) {
+    // Once summary is ready, get its embedding to index it
+    m_api->getEmbeddings(summary, metadata);
+    
+    // Update progress in processNextSummary via callback or status
+    QProgressBar* pb = findChild<QProgressBar*>();
+    if (pb) {
+        pb->setValue(pb->value() + 1);
+        processNextSummary(pb);
+    }
+}
+
+void MainWindow::onDeepDiveRequested() {
+    QString query = m_searchEdit->text();
+    if (query.isEmpty()) return;
+
+    // 1. Logic: Collect top 5 results and their context islands
+    QTableWidget *resultsTable = findChild<QTableWidget*>();
+    if (!resultsTable || resultsTable->rowCount() == 0) {
+        QMessageBox::information(this, "Deep Dive", "Please perform a search first to provide context for the synthesis.");
+        return;
+    }
+
+    m_statusLabel->setText("Deep Dive: Synthesizing reasoning...");
+    m_deepDiveBtn->setEnabled(false);
+
+    QStringList contextIslands;
+    int limit = qMin(resultsTable->rowCount(), 5);
+    
+    for (int i = 0; i < limit; ++i) {
+        QTableWidgetItem *item = resultsTable->item(i, 0);
+        if (!item) continue;
+        
+        QString docId = item->data(Qt::UserRole).toString();
+        int chunkId = item->data(Qt::UserRole + 1).toInt();
+        
+        // Extended context (±2 offsets)
+        QString context = m_store->getContext(docId, chunkId, 2);
+        if (!contextIslands.contains(context)) {
+            contextIslands.append(context);
+        }
+    }
+
+    m_api->synthesizeResponse(query, contextIslands);
+}
+
+void MainWindow::handleSynthesisReady(const QString& report) {
+    m_statusLabel->setText("Deep Dive: Synthesis Complete.");
+    m_deepDiveBtn->setEnabled(true);
+
+    // 2. UI: Luxury Reasoning Dialog
+    QDialog *reportDlg = new QDialog(this);
+    reportDlg->setWindowTitle("🧠 Synthesis Report: Deep Dive Reasoning");
+    reportDlg->resize(700, 500);
+    
+    QVBoxLayout *layout = new QVBoxLayout(reportDlg);
+    QTextEdit *reportText = new QTextEdit();
+    reportText->setReadOnly(true);
+    reportText->setHtml("<div style='line-height: 1.6; font-family: Inter, Segoe UI, sans-serif;'>" + report.toHtmlEscaped().replace("\n", "<br>") + "</div>");
+    
+    // Stylized report view
+    reportText->setStyleSheet("background-color: #fcfcfc; border: 1px solid #ddd; padding: 15px; font-size: 14px;");
+    
+    layout->addWidget(reportText);
+    
+    QPushButton *closeBtn = new QPushButton("Close");
+    closeBtn->setStyleSheet("padding: 8px 16px; background-color: #6200ee; color: white; border-radius: 4px;");
+    connect(closeBtn, &QPushButton::clicked, reportDlg, &QDialog::accept);
+    layout->addWidget(closeBtn, 0, Qt::AlignRight);
+    
+    reportDlg->exec();
 }
 
 void MainWindow::chunkAndProcess(const QVector<Chunk>& chunks, QProgressBar* progressBar) {
@@ -393,6 +580,16 @@ void MainWindow::chunkAndProcess(const QVector<Chunk>& chunks, QProgressBar* pro
     m_totalChunks = m_chunkQueue.size();
     m_processedChunks = 0;
     
+    m_sectionBuffer.clear();
+    m_summaryQueue.clear();
+
+    for (const auto& c : chunks) {
+        if (!c.headingPath.isEmpty()) {
+            m_sectionBuffer[c.headingPath] += c.text + "\n";
+        }
+    }
+    m_summaryQueue = m_sectionBuffer.keys();
+
     if (m_totalChunks == 0) {
         QMessageBox::warning(this, "No Text", "Detailed extraction found no valid text blocks.");
         return;

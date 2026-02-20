@@ -91,6 +91,130 @@ void GeminiApi::processPdf(const QString& filePath) {
     });
 }
 
+void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVariant>& metadata) {
+    QUrl url;
+    if (m_localMode == 1) { // Ollama
+        url = QUrl("http://127.0.0.1:11434/api/generate");
+    } else if (m_localMode == 2) { // LM Studio
+        url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
+    } else { // Gemini
+        url = QUrl("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + m_apiKey);
+    }
+
+    QJsonObject json;
+    QString prompt = QString("Summarize the following textbook section into a single concise paragraph (max 3 sentences). Focus on core concepts and terminology. \n\n Content: %1").arg(text);
+
+    if (m_localMode == 0) { // Gemini
+        QJsonObject content;
+        QJsonArray parts;
+        parts.append(QJsonObject{{"text", prompt}});
+        content["parts"] = parts;
+        QJsonArray contents;
+        contents.append(content);
+        json["contents"] = contents;
+    } else if (m_localMode == 1) { // Ollama
+        json["model"] = m_selectedModel.name.isEmpty() ? "llama3" : m_selectedModel.name;
+        json["prompt"] = prompt;
+        json["stream"] = false;
+    } else { // LM Studio
+        json["model"] = m_selectedModel.name;
+        QJsonArray messages;
+        messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
+        json["messages"] = messages;
+    }
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(json).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply, metadata]() {
+        if (reply->error() != QNetworkReply::NoError) {
+            emit errorOccurred("Summary error: " + reply->errorString());
+            reply->deleteLater();
+            return;
+        }
+
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QString summary;
+
+        if (m_localMode == 0) { // Gemini
+            summary = doc.object()["candidates"].toArray()[0].toObject()["content"].toObject()["parts"].toArray()[0].toObject()["text"].toString();
+        } else if (m_localMode == 1) { // Ollama
+            summary = doc.object()["response"].toString();
+        } else { // LM Studio
+            summary = doc.object()["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
+        }
+
+        emit summaryReady(summary.trimmed(), metadata);
+        reply->deleteLater();
+    });
+}
+
+void GeminiApi::synthesizeResponse(const QString& query, const QStringList& contexts, const QMap<QString, QVariant>& metadata) {
+    QUrl url;
+    if (m_localMode == 1) { // Ollama
+        url = QUrl("http://127.0.0.1:11434/api/generate");
+    } else if (m_localMode == 2) { // LM Studio
+        url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
+    } else { // Gemini
+        url = QUrl("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + m_apiKey);
+    }
+
+    QString contextBlock = contexts.join("\n\n---\n\n");
+    QString prompt = QString("You are a technical document assistant. Based on the following textbook snippets from different sections, provide a comprehensive synthesized answer to the user's query. Bridge concepts across sections if necessary. \n\n"
+                             "USER QUERY: %1 \n\n"
+                             "DOCUMENT CONTEXT: \n %2 \n\n"
+                             "SYNTHESIS REPORT:").arg(query).arg(contextBlock);
+
+    QJsonObject json;
+    if (m_localMode == 0) { // Gemini
+        QJsonObject content;
+        QJsonArray parts;
+        parts.append(QJsonObject{{"text", prompt}});
+        content["parts"] = parts;
+        QJsonArray contents;
+        contents.append(content);
+        json["contents"] = contents;
+    } else if (m_localMode == 1) { // Ollama
+        json["model"] = m_selectedModel.name.isEmpty() ? "llama3" : m_selectedModel.name;
+        json["prompt"] = prompt;
+        json["stream"] = false;
+    } else { // LM Studio
+        json["model"] = m_selectedModel.name;
+        QJsonArray messages;
+        messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
+        json["messages"] = messages;
+    }
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(json).toJson());
+    connect(reply, &QNetworkReply::finished, this, [this, reply, metadata]() {
+        if (reply->error() != QNetworkReply::NoError) {
+            emit errorOccurred("Synthesis error: " + reply->errorString());
+            reply->deleteLater();
+            return;
+        }
+
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        QString report;
+
+        if (m_localMode == 0) { // Gemini
+            report = doc.object()["candidates"].toArray()[0].toObject()["content"].toObject()["parts"].toArray()[0].toObject()["text"].toString();
+        } else if (m_localMode == 1) { // Ollama
+            report = doc.object()["response"].toString();
+        } else { // LM Studio
+            report = doc.object()["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
+        }
+
+        emit synthesisReady(report.trimmed(), metadata);
+        reply->deleteLater();
+    });
+}
+
 void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalText, const QMap<QString, QVariant>& metadata) {
     if (reply->error() != QNetworkReply::NoError) {
         QString errorMsg = reply->errorString();

@@ -1,5 +1,6 @@
 # Build directories
 build/
+_CPack_Packages/
 bin/
 Release/
 Debug/
