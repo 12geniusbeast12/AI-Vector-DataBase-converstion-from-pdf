@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALL_ROOT" Name="PDFVectorDB 3.3.2">
+                    <Directory Id="CM_DP_bin" Name="bin">
+                        <Directory Id="CM_DP_bin.data" Name="data"/>
+                        <Directory Id="CM_DP_bin.generic" Name="generic"/>
+                        <Directory Id="CM_DP_bin.iconengines" Name="iconengines"/>
+                        <Directory Id="CM_DP_bin.imageformats" Name="imageformats"/>
+                        <Directory Id="CM_DP_bin.networkinformation" Name="networkinformation"/>
+                        <Directory Id="CM_DP_bin.platforms" Name="platforms"/>
+                        <Directory Id="CM_DP_bin.sqldrivers" Name="sqldrivers"/>
+                        <Directory Id="CM_DP_bin.styles" Name="styles"/>
+                        <Directory Id="CM_DP_bin.tls" Name="tls"/>
+                    </Directory>
+                </Directory>
+            </Directory>
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="PROGRAM_MENU_FOLDER" Name="PDF Vector DB"/>
+            </Directory>
+            <Directory Id="DesktopFolder" Name="Desktop"/>
+        </Directory>
+    </Fragment>
+</Wix>

@@ -48,6 +48,10 @@ MainWindow::MainWindow(QWidget *parent)
     refreshBtn->setFixedWidth(120);
     settingsLayout->addWidget(refreshBtn);
 
+    QPushButton *troubleBtn = new QPushButton("❓ Troubleshoot", this);
+    troubleBtn->setFixedWidth(100);
+    settingsLayout->addWidget(troubleBtn);
+
     settingsLayout->addWidget(new QLabel("API Key:", this));
     settingsLayout->addWidget(apiKeyEdit);
     layout->addLayout(settingsLayout);
@@ -128,6 +132,14 @@ MainWindow::MainWindow(QWidget *parent)
         for (const auto& m : models) {
             providerCombo->addItem(QString("[%1] %2").arg(m.engine).arg(m.name));
         }
+        
+        if (models.isEmpty()) {
+            m_statusLabel->setText("No Local AI detected. Ensure LM Studio Server is STARTED on port 1234.");
+            providerCombo->addItem("--- Manual Entry (See Troubleshoot) ---");
+        } else {
+            m_statusLabel->setText(QString("Detected %1 local models.").arg(models.size()));
+        }
+
         int idx = providerCombo->findText(current);
         if (idx >= 0) providerCombo->setCurrentIndex(idx);
     });
@@ -148,6 +160,16 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(refreshBtn, &QPushButton::clicked, m_api, &GeminiApi::discoverModels);
+    
+    connect(troubleBtn, &QPushButton::clicked, [this]() {
+        QMessageBox::information(this, "Local AI Troubleshooting",
+            "To use LM Studio with this app:\n\n"
+            "1. Open LM Studio.\n"
+            "2. Go to 'Local Server' tab (icon on the left sidebar).\n"
+            "3. Select a model (e.g., Qwen 2.5) in the top dropdown.\n"
+            "4. Click 'START SERVER' (Default Port: 1234).\n\n"
+            "If it still isn't detected, make sure 'CORS' is enabled in LM Studio settings.");
+    });
     
     // Initial discovery
     m_api->discoverModels();

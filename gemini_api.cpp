@@ -23,11 +23,11 @@ void GeminiApi::getEmbeddings(const QString& text) {
     QJsonObject json;
 
     if (m_localMode == 1) { // Ollama
-        url = QUrl("http://localhost:11434/api/embeddings");
+        url = QUrl("http://127.0.0.1:11434/api/embeddings");
         json["model"] = m_selectedModel.name.isEmpty() ? "nomic-embed-text" : m_selectedModel.name;
         json["prompt"] = text;
     } else if (m_localMode == 2) { // LM Studio
-        url = QUrl("http://localhost:1234/v1/embeddings");
+        url = QUrl("http://127.0.0.1:1234/v1/embeddings");
         json["model"] = m_selectedModel.name;
         json["input"] = text;
     } else { // Gemini
@@ -172,12 +172,12 @@ void GeminiApi::onPdfReply(QNetworkReply* reply) {
 }
 
 void GeminiApi::discoverModels() {
-    // 1. Try Ollama
-    QNetworkRequest ollamaReq(QUrl("http://localhost:11434/api/tags"));
+    // 1. Try Ollama (using 127.0.0.1 to be more reliable on Windows)
+    QNetworkRequest ollamaReq(QUrl("http://127.0.0.1:11434/api/tags"));
     QNetworkReply* oReply = m_networkManager->get(ollamaReq);
     
     // 2. Try LM Studio
-    QNetworkRequest lmsReq(QUrl("http://localhost:1234/v1/models"));
+    QNetworkRequest lmsReq(QUrl("http://127.0.0.1:1234/v1/models"));
     QNetworkReply* lReply = m_networkManager->get(lmsReq);
 
     struct State {
@@ -196,12 +196,15 @@ void GeminiApi::discoverModels() {
         if (oReply->error() == QNetworkReply::NoError) {
             QJsonDocument doc = QJsonDocument::fromJson(oReply->readAll());
             QJsonArray arr = doc.object()["models"].toArray();
+            qDebug() << "Ollama discovery found" << arr.size() << "models";
             for (const QJsonValue& v : arr) {
                 QString name = v.toObject()["name"].toString();
                 if (name.contains("embed")) {
                     state->models.append({name, "Ollama", "http://localhost:11434"});
                 }
             }
+        } else {
+            qDebug() << "Ollama discovery failed:" << oReply->errorString();
         }
         oReply->deleteLater();
         check();
@@ -211,10 +214,14 @@ void GeminiApi::discoverModels() {
         if (lReply->error() == QNetworkReply::NoError) {
             QJsonDocument doc = QJsonDocument::fromJson(lReply->readAll());
             QJsonArray data = doc.object()["data"].toArray();
+            qDebug() << "LM Studio discovery found" << data.size() << "models";
             for (const QJsonValue& v : data) {
                 QString id = v.toObject()["id"].toString();
-                state->models.append({id, "LMStudio", "http://localhost:1234"});
+                state->models.append({id, "LMStudio", "http://127.0.0.1:1234"});
             }
+        } else {
+            qDebug() << "LM Studio discovery failed (Port 1234):" << lReply->errorString();
+            qDebug() << "Note: Make sure LM Studio Local Server is STARTED on port 1234.";
         }
         lReply->deleteLater();
         check();

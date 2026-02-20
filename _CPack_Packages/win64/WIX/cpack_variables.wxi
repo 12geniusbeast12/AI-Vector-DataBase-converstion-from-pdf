@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<Include xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <?define CPACK_WIX_PRODUCT_GUID="D2F0E7A1-8B2C-4E3D-9F1A-2C3B4A5D6E7F"?>
+    <?define CPACK_WIX_UPGRADE_GUID="1F6C1B37-2DD2-4886-BC1D-85262A6DD3DB"?>
+    <?define CPACK_PACKAGE_VENDOR="Dev"?>
+    <?define CPACK_PACKAGE_NAME="PDFVectorDB"?>
+    <?define CPACK_PACKAGE_VERSION="3.3.2"?>
+    <?define CPACK_WIX_LICENSE_RTF="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/License.rtf"?>
+    <?define CPACK_WIX_PROGRAM_MENU_FOLDER="PDF Vector DB"?>
+    <?define CPACK_WIX_UI_REF="WixUI_InstallDir"?>
+    <?define CPACK_WIX_INSTALL_SCOPE="NONE"?>
+</Include>

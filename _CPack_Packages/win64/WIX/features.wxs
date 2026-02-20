@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <Feature Id="ProductFeature" Display="expand" Absent="disallow" ConfigurableDirectory="INSTALL_ROOT" Title="PDFVectorDB" Level="1"/>
+        <FeatureRef Id="ProductFeature">
+            <ComponentRef Id="CM_CP_bin.D3Dcompiler_47.dll"/>
+            <ComponentRef Id="CM_C_EMPTY_CM_DP_bin.data"/>
+            <ComponentRef Id="CM_CP_bin.generic.qtuiotouchplugin.dll"/>
+            <ComponentRef Id="CM_CP_bin.iconengines.qsvgicon.dll"/>
+            <ComponentRef Id="CM_CP_bin.icuuc.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qgif.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qicns.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qico.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qjpeg.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qsvg.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qtga.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qtiff.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qwbmp.dll"/>
+            <ComponentRef Id="CM_CP_bin.imageformats.qwebp.dll"/>
+            <ComponentRef Id="CM_CP_bin.networkinformation.qnetworklistmanager.dll"/>
+            <ComponentRef Id="CM_CP_bin.pdfium.dll"/>
+            <ComponentRef Id="CM_CP_bin.PDFVectorDB.exe"/>
+            <ComponentRef Id="CM_CP_bin.platforms.qwindows.dll"/>
+            <ComponentRef Id="CM_CP_bin.Qt6Core.dll"/>
+            <ComponentRef Id="CM_CP_bin.Qt6Gui.dll"/>
+            <ComponentRef Id="CM_CP_bin.Qt6Network.dll"/>
+            <ComponentRef Id="CM_CP_bin.Qt6Sql.dll"/>
+            <ComponentRef Id="CM_CP_bin.Qt6Svg.dll"/>
+            <ComponentRef Id="CM_CP_bin.Qt6Widgets.dll"/>
+            <ComponentRef Id="CM_CP_bin.sqldrivers.qsqlibase.dll"/>
+            <ComponentRef Id="CM_CP_bin.sqldrivers.qsqlite.dll"/>
+            <ComponentRef Id="CM_CP_bin.sqldrivers.qsqlmimer.dll"/>
+            <ComponentRef Id="CM_CP_bin.sqldrivers.qsqloci.dll"/>
+            <ComponentRef Id="CM_CP_bin.sqldrivers.qsqlodbc.dll"/>
+            <ComponentRef Id="CM_CP_bin.sqldrivers.qsqlpsql.dll"/>
+            <ComponentRef Id="CM_CP_bin.styles.qmodernwindowsstyle.dll"/>
+            <ComponentRef Id="CM_CP_bin.tls.qcertonlybackend.dll"/>
+            <ComponentRef Id="CM_CP_bin.tls.qschannelbackend.dll"/>
+        </FeatureRef>
+        <FeatureRef Id="ProductFeature">
+            <ComponentRef Id="CM_SHORTCUT"/>
+        </FeatureRef>
+        <FeatureRef Id="ProductFeature">
+            <ComponentRef Id="CM_SHORTCUT_DESKTOP"/>
+        </FeatureRef>
+    </Fragment>
+</Wix>
