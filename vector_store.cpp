@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QTextStream>
 #include <QtMath>
+#include <QStandardPaths>
 #include <algorithm>
 
 VectorStore::VectorStore(const QString& dbPath) : m_dbPath(dbPath) {}
@@ -26,11 +27,11 @@ bool VectorStore::init() {
         m_db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
     }
     
-    // Ensure we use a dedicated 'data' folder
-    QString dataDir = QCoreApplication::applicationDirPath() + "/data";
+    // Ensure we use a dedicated 'data' folder in AppData
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
     
-    if (m_dbPath == "vector_db.sqlite" || !m_dbPath.contains("/")) {
+    if (m_dbPath == "vector_db.sqlite" || !m_dbPath.contains("/") && !m_dbPath.contains("\\")) {
         m_dbPath = dataDir + "/" + m_dbPath;
     }
     
@@ -68,6 +69,10 @@ bool VectorStore::init() {
 }
 
 bool VectorStore::addEntry(const QString& text, const QVector<float>& embedding, const QString& sourceFile) {
+    if (!m_db.isOpen()) {
+        qDebug() << "Cannot add entry: Database is not open!";
+        return false;
+    }
     QSqlQuery query(m_db);
     query.prepare("INSERT INTO embeddings (source_file, text_chunk, vector_blob) VALUES (:source, :text, :blob)");
     query.bindValue(":source", sourceFile);

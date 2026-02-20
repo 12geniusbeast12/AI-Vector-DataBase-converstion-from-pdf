@@ -93,7 +93,14 @@ void GeminiApi::processPdf(const QString& filePath) {
 
 void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalText) {
     if (reply->error() != QNetworkReply::NoError) {
-        emit errorOccurred("Embedding error: " + reply->errorString());
+        QString errorMsg = reply->errorString();
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (statusCode == 400 || errorMsg.contains("Bad Request")) {
+            errorMsg = "Bad Request (400): Ensure you have loaded an EMBEDDING model (like 'nomic-embed-text') in LM Studio. Note: General chat models (like Qwen or Gemma) usually fail to generate embeddings on this endpoint.";
+        }
+        
+        emit errorOccurred("Embedding error: " + errorMsg);
         reply->deleteLater();
         return;
     }
@@ -106,7 +113,10 @@ void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalT
     if (m_localMode > 0) {
         QJsonArray values;
         if (m_localMode == 2) { // LM Studio (OpenAI format)
-            values = obj["data"].toArray()[0].toObject()["embedding"].toArray();
+            QJsonArray dataArr = obj["data"].toArray();
+            if (!dataArr.isEmpty()) {
+                values = dataArr[0].toObject()["embedding"].toArray();
+            }
         } else { // Ollama
             values = obj["embedding"].toArray();
         }
@@ -126,7 +136,9 @@ void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalT
         }
     }
 
-    if (!embedding.isEmpty()) {
+    if (embedding.isEmpty()) {
+        emit errorOccurred("Embeddings returned empty. Please verify you are using an embedding-compatible model in your local AI server.");
+    } else {
         emit embeddingsReady(originalText, embedding);
     }
     reply->deleteLater();

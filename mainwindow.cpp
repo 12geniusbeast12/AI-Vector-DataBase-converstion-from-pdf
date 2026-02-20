@@ -21,6 +21,7 @@
 #include <QInputDialog>
 #include <QUrl>
 #include <QDebug>
+#include <QStandardPaths>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_store(new VectorStore()), m_pdfProcessor(new PdfProcessor(this)), m_statusLabel(nullptr) {
@@ -30,7 +31,7 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(centralWidget);
     QVBoxLayout *layout = new QVBoxLayout(centralWidget);
 
-    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v3.0 - UI REFRESH)", this);
+    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v3.3.3 - PRO)", this);
     titleLabel->setStyleSheet("font-size: 22px; font-weight: bold; color: #e67e22; margin-bottom: 5px;");
     layout->addWidget(titleLabel);
 
@@ -245,7 +246,7 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(folderBtn, &QPushButton::clicked, [this]() {
-        QString path = QCoreApplication::applicationDirPath() + "/data";
+        QString path = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
         QDir().mkpath(path); // Ensure it exists
         QDesktopServices::openUrl(QUrl::fromLocalFile(path));
     });
