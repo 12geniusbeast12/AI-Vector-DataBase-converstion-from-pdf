@@ -224,27 +224,6 @@ MainWindow::MainWindow(QWidget *parent)
         m_api->setApiKey(text);
     });
 
-    connect(dbNameBtn, &QPushButton::clicked, [this, currentDbLabel, resultsTable]() {
-        bool ok;
-        QString text = QInputDialog::getText(this, "Switch Database",
-                                             "Enter new database name (e.g. my_project):",
-                                             QLineEdit::Normal,
-                                             "", &ok);
-        if (ok && !text.trimmed().isEmpty()) {
-            QString name = text.trimmed();
-            if (!name.endsWith(".sqlite") && !name.endsWith(".db")) {
-                name += ".sqlite";
-            }
-            
-            m_store->close();
-            m_store->setPath(name);
-            if (m_store->init()) {
-                currentDbLabel->setText("Current DB: " + name);
-                resultsTable->setRowCount(0);
-                m_statusLabel->setText(QString("Switched to %1. %2 chunks available.").arg(name).arg(m_store->count()));
-            }
-        }
-    });
 
     connect(selectBtn, &QPushButton::clicked, [this, fileLabel, progressBar]() {
         QString fileName = QFileDialog::getOpenFileName(this, "Open PDF", "", "PDF Files (*.pdf)");

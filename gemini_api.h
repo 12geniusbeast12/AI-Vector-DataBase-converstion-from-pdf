@@ -42,7 +42,6 @@ signals:
 
 private slots:
     void onEmbeddingsReply(QNetworkReply* reply, const QString& originalText, const QMap<QString, QVariant>& metadata);
-    void onRerankReply(QNetworkReply* reply, QVector<VectorEntry> candidates);
     void onPdfReply(QNetworkReply* reply);
 
 private:

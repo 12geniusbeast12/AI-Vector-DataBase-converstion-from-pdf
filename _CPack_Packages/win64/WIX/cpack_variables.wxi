@@ -5,7 +5,7 @@
     <?define CPACK_WIX_UPGRADE_GUID="1F6C1B37-2DD2-4886-BC1D-85262A6DD3DB"?>
     <?define CPACK_PACKAGE_VENDOR="Dev"?>
     <?define CPACK_PACKAGE_NAME="PDFVectorDB"?>
-    <?define CPACK_PACKAGE_VERSION="3.5.0"?>
+    <?define CPACK_PACKAGE_VERSION="3.6.0"?>
     <?define CPACK_WIX_LICENSE_RTF="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/License.rtf"?>
     <?define CPACK_WIX_PROGRAM_MENU_FOLDER="PDF Vector DB"?>
     <?define CPACK_WIX_UI_REF="WixUI_InstallDir"?>

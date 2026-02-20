@@ -9,6 +9,7 @@
 #include <QTextStream>
 #include <QtMath>
 #include <QStandardPaths>
+#include <QElapsedTimer>
 #include <algorithm>
 
 VectorStore::VectorStore(const QString& dbPath) : m_dbPath(dbPath) {}
@@ -70,9 +71,19 @@ bool VectorStore::init() {
         qDebug() << "Migrated database to v2 (Core Metadata).";
     }
 
-    // Migration to v5: Granular Ranks and Latencies
-    if (version < 5) {
-        q.exec("DROP TABLE IF EXISTS retrieval_logs"); // Safe to reset logs for diagnostic upgrade
+    // Migration to v6: Final Schema Integrity (Fixing missing columns from v3/v4/v5 gaps)
+    if (version < 6) {
+        // Safely add missing columns to 'embeddings'
+        q.exec("ALTER TABLE embeddings ADD COLUMN chunk_idx INTEGER");
+        q.exec("ALTER TABLE embeddings ADD COLUMN model_dim INTEGER");
+        q.exec("ALTER TABLE embeddings ADD COLUMN token_count INTEGER");
+        q.exec("ALTER TABLE embeddings ADD COLUMN doc_version TEXT");
+        
+        // Ensure FTS5 is initialized if it was skipped
+        q.exec("CREATE VIRTUAL TABLE IF NOT EXISTS embeddings_fts USING fts5(text_chunk, content='embeddings', content_rowid='id')");
+        
+        // Ensure retrieval_logs is correct (re-creating it for v6 ensures schema is fresh)
+        // Note: version 5 already did this, but versioning gaps might have skipped it.
         q.exec("CREATE TABLE IF NOT EXISTS retrieval_logs ("
                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                "query TEXT, "
@@ -85,8 +96,9 @@ bool VectorStore::init() {
                "latency_rerank INTEGER, "
                "top_score REAL, "
                "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
-        q.exec("PRAGMA user_version = 5");
-        qDebug() << "Migrated database to v5 (Advanced Diagnostics).";
+
+        q.exec("PRAGMA user_version = 6");
+        qDebug() << "Migrated database to v6 (Schema Integrity Fix).";
     }
 
     return true;
