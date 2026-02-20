@@ -11,6 +11,8 @@
 class VectorStore;
 class QProgressBar;
 class QLabel;
+class QLineEdit;
+class QComboBox;
 
 #include <QElapsedTimer>
 #include <QCheckBox>

@@ -4,167 +4,167 @@
     <Fragment>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.D3Dcompiler_47.dll" Guid="*">
-                <File Id="CM_FP_bin.D3Dcompiler_47.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/D3Dcompiler_47.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.D3Dcompiler_47.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/D3Dcompiler_47.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.data">
-            <Component Id="CM_C_EMPTY_CM_DP_bin.data" Guid="00FFC65F-818A-4545-9E23-F704AD1F5812">
+            <Component Id="CM_C_EMPTY_CM_DP_bin.data" Guid="5363650A-577B-4A6B-A48F-C4DBFFCDBFB7">
                 <CreateFolder/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.generic">
             <Component Id="CM_CP_bin.generic.qtuiotouchplugin.dll" Guid="*">
-                <File Id="CM_FP_bin.generic.qtuiotouchplugin.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/generic/qtuiotouchplugin.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.generic.qtuiotouchplugin.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/generic/qtuiotouchplugin.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.iconengines">
             <Component Id="CM_CP_bin.iconengines.qsvgicon.dll" Guid="*">
-                <File Id="CM_FP_bin.iconengines.qsvgicon.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/iconengines/qsvgicon.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.iconengines.qsvgicon.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/iconengines/qsvgicon.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.icuuc.dll" Guid="*">
-                <File Id="CM_FP_bin.icuuc.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/icuuc.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.icuuc.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/icuuc.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qgif.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qgif.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qgif.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qgif.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qgif.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qicns.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qicns.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qicns.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qicns.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qicns.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qico.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qico.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qico.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qico.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qico.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qjpeg.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qjpeg.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qjpeg.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qjpeg.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qjpeg.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qsvg.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qsvg.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qsvg.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qsvg.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qsvg.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qtga.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qtga.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qtga.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qtga.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qtga.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qtiff.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qtiff.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qtiff.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qtiff.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qtiff.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qwbmp.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qwbmp.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qwbmp.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qwbmp.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qwbmp.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.imageformats">
             <Component Id="CM_CP_bin.imageformats.qwebp.dll" Guid="*">
-                <File Id="CM_FP_bin.imageformats.qwebp.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/imageformats/qwebp.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.imageformats.qwebp.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/imageformats/qwebp.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.networkinformation">
             <Component Id="CM_CP_bin.networkinformation.qnetworklistmanager.dll" Guid="*">
-                <File Id="CM_FP_bin.networkinformation.qnetworklistmanager.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/networkinformation/qnetworklistmanager.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.networkinformation.qnetworklistmanager.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/networkinformation/qnetworklistmanager.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.pdfium.dll" Guid="*">
-                <File Id="CM_FP_bin.pdfium.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/pdfium.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.pdfium.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/pdfium.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.PDFVectorDB.exe" Guid="*">
-                <File Id="CM_FP_bin.PDFVectorDB.exe" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/PDFVectorDB.exe" KeyPath="yes"/>
+                <File Id="CM_FP_bin.PDFVectorDB.exe" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/PDFVectorDB.exe" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.platforms">
             <Component Id="CM_CP_bin.platforms.qwindows.dll" Guid="*">
-                <File Id="CM_FP_bin.platforms.qwindows.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/platforms/qwindows.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.platforms.qwindows.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/platforms/qwindows.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.Qt6Core.dll" Guid="*">
-                <File Id="CM_FP_bin.Qt6Core.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/Qt6Core.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.Qt6Core.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/Qt6Core.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.Qt6Gui.dll" Guid="*">
-                <File Id="CM_FP_bin.Qt6Gui.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/Qt6Gui.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.Qt6Gui.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/Qt6Gui.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.Qt6Network.dll" Guid="*">
-                <File Id="CM_FP_bin.Qt6Network.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/Qt6Network.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.Qt6Network.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/Qt6Network.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.Qt6Sql.dll" Guid="*">
-                <File Id="CM_FP_bin.Qt6Sql.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/Qt6Sql.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.Qt6Sql.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/Qt6Sql.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.Qt6Svg.dll" Guid="*">
-                <File Id="CM_FP_bin.Qt6Svg.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/Qt6Svg.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.Qt6Svg.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/Qt6Svg.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin">
             <Component Id="CM_CP_bin.Qt6Widgets.dll" Guid="*">
-                <File Id="CM_FP_bin.Qt6Widgets.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/Qt6Widgets.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.Qt6Widgets.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/Qt6Widgets.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.sqldrivers">
             <Component Id="CM_CP_bin.sqldrivers.qsqlibase.dll" Guid="*">
-                <File Id="CM_FP_bin.sqldrivers.qsqlibase.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/sqldrivers/qsqlibase.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.sqldrivers.qsqlibase.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/sqldrivers/qsqlibase.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.sqldrivers">
             <Component Id="CM_CP_bin.sqldrivers.qsqlite.dll" Guid="*">
-                <File Id="CM_FP_bin.sqldrivers.qsqlite.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/sqldrivers/qsqlite.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.sqldrivers.qsqlite.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/sqldrivers/qsqlite.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.sqldrivers">
             <Component Id="CM_CP_bin.sqldrivers.qsqlmimer.dll" Guid="*">
-                <File Id="CM_FP_bin.sqldrivers.qsqlmimer.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/sqldrivers/qsqlmimer.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.sqldrivers.qsqlmimer.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/sqldrivers/qsqlmimer.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.sqldrivers">
             <Component Id="CM_CP_bin.sqldrivers.qsqloci.dll" Guid="*">
-                <File Id="CM_FP_bin.sqldrivers.qsqloci.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/sqldrivers/qsqloci.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.sqldrivers.qsqloci.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/sqldrivers/qsqloci.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.sqldrivers">
             <Component Id="CM_CP_bin.sqldrivers.qsqlodbc.dll" Guid="*">
-                <File Id="CM_FP_bin.sqldrivers.qsqlodbc.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/sqldrivers/qsqlodbc.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.sqldrivers.qsqlodbc.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/sqldrivers/qsqlodbc.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.sqldrivers">
             <Component Id="CM_CP_bin.sqldrivers.qsqlpsql.dll" Guid="*">
-                <File Id="CM_FP_bin.sqldrivers.qsqlpsql.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/sqldrivers/qsqlpsql.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.sqldrivers.qsqlpsql.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/sqldrivers/qsqlpsql.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.styles">
             <Component Id="CM_CP_bin.styles.qmodernwindowsstyle.dll" Guid="*">
-                <File Id="CM_FP_bin.styles.qmodernwindowsstyle.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/styles/qmodernwindowsstyle.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.styles.qmodernwindowsstyle.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/styles/qmodernwindowsstyle.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.tls">
             <Component Id="CM_CP_bin.tls.qcertonlybackend.dll" Guid="*">
-                <File Id="CM_FP_bin.tls.qcertonlybackend.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/tls/qcertonlybackend.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.tls.qcertonlybackend.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/tls/qcertonlybackend.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="CM_DP_bin.tls">
             <Component Id="CM_CP_bin.tls.qschannelbackend.dll" Guid="*">
-                <File Id="CM_FP_bin.tls.qschannelbackend.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.3.4-win64/bin/tls/qschannelbackend.dll" KeyPath="yes"/>
+                <File Id="CM_FP_bin.tls.qschannelbackend.dll" Source="C:/Users/Hp/Desktop/vector databse/_CPack_Packages/win64/WIX/PDFVectorDB-3.5.0-win64/bin/tls/qschannelbackend.dll" KeyPath="yes"/>
             </Component>
         </DirectoryRef>
         <DirectoryRef Id="PROGRAM_MENU_FOLDER">

@@ -11,6 +11,7 @@
 #include <QVector>
 #include <QMap>
 #include <QVariant>
+#include "vector_store.h"
 
 struct ModelInfo {
     QString name;
