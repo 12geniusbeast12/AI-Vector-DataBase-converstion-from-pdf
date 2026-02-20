@@ -41,7 +41,6 @@ MainWindow::MainWindow(QWidget *parent)
     QLineEdit *apiKeyEdit = new QLineEdit(this);
     apiKeyEdit->setPlaceholderText("Enter API Key...");
     apiKeyEdit->setEchoMode(QLineEdit::Password);
-    apiKeyEdit->setText("AIzaSyBW3ltXWN8iyZOg7Q0ypTxFD7C3blZ8Ef0");
     settingsLayout->addWidget(new QLabel("Provider:", this));
     settingsLayout->addWidget(providerCombo);
     
@@ -161,6 +160,8 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(refreshBtn, &QPushButton::clicked, m_api, &GeminiApi::discoverModels);
+    
+    connect(apiKeyEdit, &QLineEdit::textChanged, m_api, &GeminiApi::setApiKey);
     
     connect(troubleBtn, &QPushButton::clicked, [this]() {
         QMessageBox::information(this, "Local AI Troubleshooting",

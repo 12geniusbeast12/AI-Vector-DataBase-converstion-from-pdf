@@ -2,7 +2,7 @@ import urllib.request
 import json
 import ssl
 
-api_key = "AIzaSyBW3ltXWN8iyZOg7Q0ypTxFD7C3blZ8Ef0"
+api_key = ""
 url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
 
 context = ssl._create_unverified_context()
