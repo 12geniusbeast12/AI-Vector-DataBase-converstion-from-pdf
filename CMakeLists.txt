@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(PDFVectorDB VERSION 3.9.0 LANGUAGES CXX)
+project(PDFVectorDB VERSION 4.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,7 +8,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Sql Core)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Sql Core Concurrent)
 
 qt_standard_project_setup()
 
@@ -34,6 +34,7 @@ target_link_libraries(PDFVectorDB PRIVATE
     Qt6::Network 
     Qt6::Sql 
     Qt6::Core
+    Qt6::Concurrent
     "${PDFIUM_ROOT}/lib/pdfium.dll.lib"
 )
 

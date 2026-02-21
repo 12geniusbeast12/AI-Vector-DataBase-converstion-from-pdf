@@ -31,15 +31,20 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_store(new VectorStore()), m_pdfProcessor(new PdfProcessor(this)), m_statusLabel(nullptr),
-      m_embedCombo(new QComboBox(this)), m_reasonCombo(new QComboBox(this)), 
-      m_embedHealth(new QLabel("🔴 Embedding", this)), m_reasonHealth(new QLabel("🔴 Reasoning", this)) {
+      m_embedCombo(new QComboBox(this)), m_reasonCombo(new QComboBox(this)), m_rerankCombo(new QComboBox(this)),
+      m_embedHealth(new QLabel("🔴 Embedding", this)), m_reasonHealth(new QLabel("🔴 Reasoning", this)),
+      m_rerankHealth(new QLabel("🔴 Reranking", this)) {
+    
+    m_showRankDiffCheck = new QCheckBox("Show Rank Diff (⬆️)", this);
+    m_mmrCheck = new QCheckBox("Adaptive MMR (Exp)", this);
+    m_explorationCheck = new QCheckBox("Exploration (Exp)", this);
     
     // ... UI Setup ...
     QWidget *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
     QVBoxLayout *layout = new QVBoxLayout(centralWidget);
 
-    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v3.9.0 - Structured Knowledge System)", this);
+    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v4.4.0 - Autonomous Knowledge Engine)", this);
     titleLabel->setStyleSheet("font-size: 22px; font-weight: bold; color: #e67e22; margin-bottom: 5px;");
     layout->addWidget(titleLabel);
 
@@ -64,23 +69,39 @@ MainWindow::MainWindow(QWidget *parent)
     settingsLayout->addWidget(apiKeyEdit);
     layout->addLayout(settingsLayout);
 
-    // Dual-Engine Control Row
-    QHBoxLayout *engineRow = new QHBoxLayout();
+    // Triple-Engine Control Rows
+    QVBoxLayout *engineBlock = new QVBoxLayout();
+    
+    QHBoxLayout *engineRow1 = new QHBoxLayout();
     m_embedCombo->setMinimumWidth(250);
     m_reasonCombo->setMinimumWidth(250);
-    
     m_embedHealth->setStyleSheet("color: #e74c3c; font-weight: bold; margin-right: 10px;");
     m_reasonHealth->setStyleSheet("color: #e74c3c; font-weight: bold;");
 
-    engineRow->addWidget(new QLabel("⚡ Embedding Engine:", this));
-    engineRow->addWidget(m_embedCombo);
-    engineRow->addWidget(m_embedHealth);
-    engineRow->addSpacing(20);
-    engineRow->addWidget(new QLabel("🧠 Reasoning Engine:", this));
-    engineRow->addWidget(m_reasonCombo);
-    engineRow->addWidget(m_reasonHealth);
-    engineRow->addStretch();
-    layout->addLayout(engineRow);
+    engineRow1->addWidget(new QLabel("⚡ Embedding Engine:", this));
+    engineRow1->addWidget(m_embedCombo);
+    engineRow1->addWidget(m_embedHealth);
+    engineRow1->addSpacing(20);
+    engineRow1->addWidget(new QLabel("🧠 Reasoning Engine:", this));
+    engineRow1->addWidget(m_reasonCombo);
+    engineRow1->addWidget(m_reasonHealth);
+    engineRow1->addStretch();
+    
+    QHBoxLayout *engineRow2 = new QHBoxLayout();
+    m_rerankCombo->setMinimumWidth(250);
+    m_rerankHealth->setStyleSheet("color: #e74c3c; font-weight: bold; margin-right: 10px;");
+    m_showRankDiffCheck->setChecked(true);
+    
+    engineRow2->addWidget(new QLabel("🎯 Reranking Engine:", this));
+    engineRow2->addWidget(m_rerankCombo);
+    engineRow2->addWidget(m_rerankHealth);
+    engineRow2->addSpacing(20);
+    engineRow2->addWidget(m_showRankDiffCheck);
+    engineRow2->addStretch();
+
+    engineBlock->addLayout(engineRow1);
+    engineBlock->addLayout(engineRow2);
+    layout->addLayout(engineBlock);
 
     QHBoxLayout *dbRow = new QHBoxLayout();
     m_workspaceCombo = new QComboBox(this);
@@ -105,9 +126,11 @@ MainWindow::MainWindow(QWidget *parent)
             // Restore Engine Selections
             QString savedEmbed = m_store->getMetadata("embed_engine");
             QString savedReason = m_store->getMetadata("reason_engine");
+            QString savedRerank = m_store->getMetadata("rerank_engine");
             
             if (!savedEmbed.isEmpty()) m_embedCombo->setCurrentText(savedEmbed);
             if (!savedReason.isEmpty()) m_reasonCombo->setCurrentText(savedReason);
+            if (!savedRerank.isEmpty()) m_rerankCombo->setCurrentText(savedRerank);
             
             m_statusLabel->setText(QString("Switched to workspace: %1 [Dim: %2]").arg(dbName).arg(m_store->getRegisteredDimension()));
         }
@@ -167,9 +190,17 @@ MainWindow::MainWindow(QWidget *parent)
     m_rerankCheck->setChecked(false);
     
     QPushButton *searchBtn = new QPushButton("Search", this);
+    m_mmrCheck->setToolTip("Phase 4.1 diversity scheduling (Experimental)");
+    m_mmrCheck->setStyleSheet("color: #27ae60; font-weight: bold;");
+
+    m_explorationCheck->setToolTip("Phase 4.3 Active signal acquisition (Experimental)");
+    m_explorationCheck->setStyleSheet("color: #9b59b6; font-weight: bold;");
+
     searchLayout->addWidget(m_searchEdit);
     searchLayout->addWidget(m_hybridCheck);
     searchLayout->addWidget(m_rerankCheck);
+    searchLayout->addWidget(m_mmrCheck);
+    searchLayout->addWidget(m_explorationCheck);
     searchLayout->addWidget(searchBtn);
     
     m_deepDiveBtn = new QPushButton("🧪 Deep Dive Synthesis");
@@ -191,12 +222,14 @@ MainWindow::MainWindow(QWidget *parent)
         QTableWidgetItem *item = resultsTable->item(row, 0);
         if (!item) return;
         
+        // Phase 4.3: Feedback Loop - Interaction Boost (Quarantine Aware)
         QString docId = item->data(Qt::UserRole).toString();
-        // Since we didn't store chunk_idx directly in VectorEntry yet (it was local to addEntry),
-        // let's fetch it from the database based on the entry ID (Qt::UserRole + 1)
         int entryId = item->data(Qt::UserRole + 1).toInt();
+        bool isExp = item->data(Qt::UserRole + 2).toBool();
         
-        QSqlQuery q(m_store->database()); // Access the db
+        m_store->addInteraction(entryId, m_searchEdit->text(), isExp);
+        
+        QSqlQuery q(m_store->database()); 
         q.prepare("SELECT chunk_idx, text_chunk FROM embeddings WHERE id = :id");
         q.bindValue(":id", entryId);
         if (q.exec() && q.next()) {
@@ -274,13 +307,16 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_api, &GeminiApi::discoveredModelsReady, this, [this](const QVector<ModelInfo>& models) {
         m_embedCombo->clear();
         m_reasonCombo->clear();
+        m_rerankCombo->clear();
         
         m_embedCombo->addItem("Gemini-Embedding-001 (Cloud)");
         m_reasonCombo->addItem("Gemini-1.5-Flash (Cloud)");
+        m_rerankCombo->addItem("(No Reranker - Direct Retrieval)");
         
         m_lastDiscoveredModels = models;
         int embedCount = 0;
         int reasonCount = 0;
+        int rerankCount = 0;
 
         for (const auto& m : models) {
             QString displayName = QString("[%1] %2").arg(m.engine).arg(m.name);
@@ -292,6 +328,10 @@ MainWindow::MainWindow(QWidget *parent)
                 m_reasonCombo->addItem(displayName);
                 reasonCount++;
             }
+            if (m.capabilities.contains(ModelCapability::Rerank)) {
+                m_rerankCombo->addItem(displayName);
+                rerankCount++;
+            }
         }
         
         // Update Health Indicators
@@ -301,52 +341,71 @@ MainWindow::MainWindow(QWidget *parent)
         m_reasonHealth->setText(reasonCount > 0 ? "🟢 Reasoning Ready" : "🟡 Reasoning (Cloud Only)");
         m_reasonHealth->setStyleSheet(reasonCount > 0 ? "color: #27ae60; font-weight: bold;" : "color: #f39c12; font-weight: bold;");
 
-        m_statusLabel->setText(QString("Discovery: %1 embedding, %2 reasoning models found.").arg(embedCount).arg(reasonCount));
+        m_rerankHealth->setText(rerankCount > 0 ? "🟢 Reranking Ready" : "⚪ Bypassed");
+        m_rerankHealth->setStyleSheet(rerankCount > 0 ? "color: #27ae60; font-weight: bold;" : "color: #7f8c8d; font-weight: bold;");
+
+        m_statusLabel->setText(QString("Discovery: %1 embed, %2 reason, %3 rerank models found.").arg(embedCount).arg(reasonCount).arg(rerankCount));
     });
 
-    // Dual-Engine Selection Logic
+    // Triple-Engine Selection Logic
     auto updateEngines = [this]() {
-        // Embedding Engine
+        // 1. Embedding Engine
         if (m_embedCombo->currentIndex() == 0) {
-            m_api->setEmbeddingModel({"gemini-embedding-001", "Gemini", "", {ModelCapability::Embedding}});
+            m_api->setEmbeddingModel({"gemini-embedding-001", "Gemini", "", "", {ModelCapability::Embedding}});
         } else {
-            // ... (existing local lookup)
-            int localIdx = m_embedCombo->currentIndex() - 1;
-            int currentMatch = 0;
+            int targetIdx = m_embedCombo->currentIndex() - 1;
+            int count = 0;
             for (const auto& m : m_lastDiscoveredModels) {
                 if (m.capabilities.contains(ModelCapability::Embedding)) {
-                    if (currentMatch == localIdx) {
-                        m_api->setEmbeddingModel(m);
-                        break;
-                    }
-                    currentMatch++;
+                    if (count == targetIdx) { m_api->setEmbeddingModel(m); break; }
+                    count++;
                 }
             }
         }
         m_store->setMetadata("embed_engine", m_embedCombo->currentText());
 
-        // Reasoning Engine
+        // 2. Reasoning Engine
         if (m_reasonCombo->currentIndex() == 0) {
-            m_api->setReasoningModel({"gemini-1.5-flash", "Gemini", "", {ModelCapability::Chat, ModelCapability::Summary, ModelCapability::Rerank}});
+            m_api->setReasoningModel({"gemini-1.5-flash", "Gemini", "", "", {ModelCapability::Chat, ModelCapability::Summary, ModelCapability::Rerank}});
         } else {
-            // ... (existing local lookup)
-            int localIdx = m_reasonCombo->currentIndex() - 1;
-            int currentMatch = 0;
+            int targetIdx = m_reasonCombo->currentIndex() - 1;
+            int count = 0;
             for (const auto& m : m_lastDiscoveredModels) {
                 if (m.capabilities.contains(ModelCapability::Chat)) {
-                    if (currentMatch == localIdx) {
-                        m_api->setReasoningModel(m);
-                        break;
-                    }
-                    currentMatch++;
+                    if (count == targetIdx) { m_api->setReasoningModel(m); break; }
+                    count++;
                 }
             }
         }
         m_store->setMetadata("reason_engine", m_reasonCombo->currentText());
+
+        // 3. Reranking Engine
+        QString rerankModelName = m_rerankCombo->currentText();
+        if (m_rerankCombo->currentIndex() == 0) {
+            m_api->setRerankModel({"none", "None", "", "", {}});
+        } else {
+            int targetIdx = m_rerankCombo->currentIndex() - 1;
+            int count = 0;
+            for (const auto& m : m_lastDiscoveredModels) {
+                if (m.capabilities.contains(ModelCapability::Rerank)) {
+                    if (count == targetIdx) { 
+                        m_api->setRerankModel(m); 
+                        // Phase 3B: Load persistent stats
+                        float savedMean = m_store->getMetadata(rerankModelName + "_mean").toFloat();
+                        float savedStd = m_store->getMetadata(rerankModelName + "_std").toFloat();
+                        if (savedStd > 0) m_api->updateRerankerStats(savedMean, savedStd);
+                        break; 
+                    }
+                    count++;
+                }
+            }
+        }
+        m_store->setMetadata("rerank_engine", rerankModelName);
     };
 
     connect(m_embedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), updateEngines);
     connect(m_reasonCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), updateEngines);
+    connect(m_rerankCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), updateEngines);
 
     // Connections
     connect(providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
@@ -436,12 +495,34 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_api, &GeminiApi::summaryReady, this, &MainWindow::handleSummaryReady);
     connect(m_api, &GeminiApi::synthesisReady, this, &MainWindow::handleSynthesisReady);
     
+    // Phase 3B: Handle Reranker Stat Persistence
+    connect(m_api, &GeminiApi::rerankerStatsUpdated, this, [this](float m, float s) {
+        QString modelName = m_rerankCombo->currentText();
+        m_store->setMetadata(modelName + "_mean", QString::number(m));
+        m_store->setMetadata(modelName + "_std", QString::number(s));
+    });
+
+    connect(m_api, &GeminiApi::anomalyDetected, this, [this](const QString& title, const QString& msg) {
+        m_statusLabel->setText("⚠️ " + title + ": " + msg);
+        m_statusLabel->setStyleSheet("color: #e74c3c; font-weight: bold;");
+    });
+
     connect(searchBtn, &QPushButton::clicked, [this]() {
-        if (!m_searchEdit->text().isEmpty()) {
+        QString query = m_searchEdit->text();
+        if (!query.isEmpty()) {
             m_isIndexing = false;
             m_searchTimer.start();
+            
+            // Phase 3A: Result Streaming - Step 1: Immediate FTS
+            m_statusLabel->setText("Searching keywords...");
+            QVector<VectorEntry> ftsResults = m_store->ftsSearch(query, 5);
+            if (!ftsResults.isEmpty()) {
+                m_tSearch = m_searchTimer.elapsed();
+                updateResultsTable(ftsResults, "Keyword Search");
+            }
+            
             m_statusLabel->setText("Generating query embedding...");
-            m_api->getEmbeddings(m_searchEdit->text());
+            m_api->getEmbeddings(query);
         }
     });
 
@@ -463,21 +544,30 @@ MainWindow::MainWindow(QWidget *parent)
             m_tEmbed = m_searchTimer.elapsed();
             
             QVector<VectorEntry> results;
+            SearchOptions options;
+            options.limit = 5;
+            options.useRerank = m_rerankCheck->isChecked();
+            options.deterministic = true; // Phase 4.0 Foundation
+            options.experimentalMmr = m_mmrCheck->isChecked(); // Phase 4.1 Hypothesis
+            options.enableExploration = m_explorationCheck->isChecked(); // Phase 4.3 Probe
+            
             if (m_hybridCheck->isChecked()) {
-                results = m_store->hybridSearch(m_searchEdit->text(), embedding);
+                results = m_store->hybridSearch(m_searchEdit->text(), embedding, options);
             } else {
-                results = m_store->search(embedding);
+                results = m_store->search(embedding, 5);
             }
             
             m_tSearch = m_searchTimer.elapsed() - m_tEmbed;
             
-            if (m_rerankCheck->isChecked() && !results.isEmpty()) {
-                m_statusLabel->setText(QString("Hybrid found %1 potential hits. Reranking top 10...").arg(results.size()));
+            if (m_rerankCheck->isChecked() && !results.isEmpty() && !m_rerankCombo->currentText().contains("No Reranker")) {
+                m_statusLabel->setText(QString("Hybrid found %1 potential hits. Reranking top 10 using %2...")
+                                      .arg(results.size()).arg(m_rerankCombo->currentText()));
+                updateResultsTable(results, "Vector-Hybrid"); // Partial Result
                 m_api->rerank(m_searchEdit->text(), results.mid(0, 10));
             } else {
                 // Skip reranking
                 m_tRerank = 0;
-                updateResultsTable(results);
+                updateResultsTable(results, "Complete");
             }
         } else {
             // INDEXING MODE
@@ -502,7 +592,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_api, &GeminiApi::rerankingReady, this, [this](const QVector<VectorEntry>& results) {
         m_tRerank = m_searchTimer.elapsed() - m_tEmbed - m_tSearch;
-        updateResultsTable(results);
+        updateResultsTable(results, "Refined Rerank");
     });
 
     resize(900, 650);
@@ -512,15 +602,22 @@ MainWindow::~MainWindow() {
     delete m_store;
 }
 
-void MainWindow::updateResultsTable(const QVector<VectorEntry>& results) {
+void MainWindow::updateResultsTable(const QVector<VectorEntry>& results, const QString& stage) {
     QTableWidget *resultsTable = findChild<QTableWidget*>();
     if (!resultsTable) return;
     
     int totalLatency = m_searchTimer.elapsed();
-    m_latencyLabel->setText(QString("Total: %1ms (Embed: %2ms, Search: %3ms, Rerank: %4ms)")
-                            .arg(totalLatency).arg(m_tEmbed).arg(m_tSearch).arg(m_tRerank));
+    m_latencyLabel->setText(QString("[%1] Total: %2ms (Embed: %3ms, Search: %4ms, Rerank: %5ms)")
+                            .arg(stage).arg(totalLatency).arg(m_tEmbed).arg(m_tSearch).arg(m_tRerank));
     
-    m_statusLabel->setText(QString("Found %1 results.").arg(results.size()));
+    m_statusLabel->clear();
+    float stability = results.isEmpty() ? 1.0f : results[0].stabilityIndex;
+    QString stabilityTag = stability > 0.8f ? "<b style='color: #27ae60;'>🛡️ Stable</b>" : "<b style='color: #e67e22;'>⚠️ Volatile</b>";
+    
+    m_statusLabel->setText(QString("%1 | Found %2 results (%3).").arg(stabilityTag).arg(results.size()).arg(stage));
+    m_statusLabel->setToolTip(QString("Rank Stability Index: %1\n(Regulation Active)").arg(stability, 0, 'f', 2));
+    
+    m_lastResults = results; // Set the cached search results for Deep Dive contextualizer
     
     if (!results.isEmpty()) {
         m_store->logRetrieval(m_searchEdit->text(), results[0].semanticRank, results[0].keywordRank, 1, 
@@ -567,14 +664,33 @@ void MainWindow::updateResultsTable(const QVector<VectorEntry>& results) {
             }
         }
         textItem->setData(Qt::UserRole, entry.docId);
-        textItem->setData(Qt::UserRole + 1, entry.id); // Using rowid since chunk_idx might vary
+        textItem->setData(Qt::UserRole + 1, entry.id); 
+        textItem->setData(Qt::UserRole + 2, entry.isExploration); // Phase 4.3 Quarantine Data
         
         resultsTable->setItem(row, 0, textItem);
         resultsTable->setItem(row, 1, new QTableWidgetItem(entry.sourceFile));
         resultsTable->setItem(row, 2, new QTableWidgetItem(QString::number(entry.pageNum)));
         
-        QString label = m_rerankCheck->isChecked() ? " (Refined)" : (m_hybridCheck->isChecked() ? " (Hybrid)" : "");
-        resultsTable->setItem(row, 3, new QTableWidgetItem(QString::number(entry.score, 'f', 4) + label));
+        QString rankShift;
+        if (m_rerankCheck->isChecked() && m_showRankDiffCheck->isChecked() && m_tRerank > 0) {
+            int original = entry.rerankRank + 1; // 1-indexed for comparison
+            int current = row + 1;
+            if (current < original) {
+                rankShift = QString(" ⬆️ (+%1)").arg(original - current);
+            } else if (current > original) {
+                rankShift = QString(" ⬇️ (-%1)").arg(current - original);
+            } else {
+                rankShift = " ➖";
+            }
+        }
+        
+        QString label;
+        if (entry.keywordRank > 0 && entry.semanticRank > 0) label = " (Hybrid)";
+        else if (entry.keywordRank > 0) label = " (Keyword)";
+        else if (entry.semanticRank > 0) label = " (Vector)";
+        
+        QString rerankTag = (m_tRerank > 0) ? " [R]" : "";
+        resultsTable->setItem(row, 3, new QTableWidgetItem(QString::number(entry.score, 'f', 4) + label + rerankTag + rankShift));
     }
 }
 
@@ -687,61 +803,132 @@ void MainWindow::handleSummaryReady(const QString& summary, const QMap<QString, 
 
 void MainWindow::onDeepDiveRequested() {
     QString query = m_searchEdit->text();
-    if (query.isEmpty()) return;
+    if (query.isEmpty() || m_lastResults.isEmpty()) return;
 
-    // 1. Logic: Collect top 5 results and their context islands
-    QTableWidget *resultsTable = findChild<QTableWidget*>();
-    if (!resultsTable || resultsTable->rowCount() == 0) {
-        QMessageBox::information(this, "Deep Dive", "Please perform a search first to provide context for the synthesis.");
-        return;
-    }
-
-    m_statusLabel->setText("Deep Dive: Synthesizing reasoning...");
+    m_statusLabel->setText("Deep Dive: Synthesizing grounded reasoning...");
     m_deepDiveBtn->setEnabled(false);
 
-    QStringList contextIslands;
-    int limit = qMin(resultsTable->rowCount(), 5);
+    QVector<SourceContext> contextIslands;
+    int limit = qMin(m_lastResults.size(), 5);
     
+    // Hardening: Extract full metadata contexts
     for (int i = 0; i < limit; ++i) {
-        QTableWidgetItem *item = resultsTable->item(i, 0);
-        if (!item) continue;
-        
-        QString docId = item->data(Qt::UserRole).toString();
-        int chunkId = item->data(Qt::UserRole + 1).toInt();
-        
-        // Extended context (±2 offsets)
-        QString context = m_store->getContext(docId, chunkId, 2);
-        if (!contextIslands.contains(context)) {
-            contextIslands.append(context);
-        }
+        VectorEntry entry = m_lastResults[i];
+        QString stage = m_rerankCheck->isChecked() ? "rerank" : (m_hybridCheck->isChecked() ? "hybrid" : "semantic");
+        SourceContext ctx = m_store->getSourceContext(entry, 2, stage);
+        ctx.promptIndex = i + 1; // 1-indexed for the prompt
+        contextIslands.append(ctx);
     }
 
     m_api->synthesizeResponse(query, contextIslands);
 }
 
-void MainWindow::handleSynthesisReady(const QString& report) {
+#include <QSplitter>
+#include <QScrollArea>
+
+void MainWindow::handleSynthesisReady(const QVector<ClaimNode>& claims, const QVector<SourceContext>& contexts, const QMap<QString, QVariant>& metadata) {
     m_statusLabel->setText("Deep Dive: Synthesis Complete.");
     m_deepDiveBtn->setEnabled(true);
 
-    // 2. UI: Luxury Reasoning Dialog
     QDialog *reportDlg = new QDialog(this);
-    reportDlg->setWindowTitle("🧠 Synthesis Report: Deep Dive Reasoning");
-    reportDlg->resize(700, 500);
+    reportDlg->setWindowTitle("🧠 Synthesis Report: Verifiable Reasoning");
+    reportDlg->resize(1000, 650);
     
-    QVBoxLayout *layout = new QVBoxLayout(reportDlg);
-    QTextEdit *reportText = new QTextEdit();
-    reportText->setReadOnly(true);
-    reportText->setHtml("<div style='line-height: 1.6; font-family: Inter, Segoe UI, sans-serif;'>" + report.toHtmlEscaped().replace("\n", "<br>") + "</div>");
+    QVBoxLayout *mainLayout = new QVBoxLayout(reportDlg);
+    QSplitter *splitter = new QSplitter(Qt::Horizontal);
     
-    // Stylized report view
-    reportText->setStyleSheet("background-color: #fcfcfc; border: 1px solid #ddd; padding: 15px; font-size: 14px;");
+    // --- LEFT PANE: Reasoning Engine output ---
+    QTextEdit *reasoningEdit = new QTextEdit();
+    reasoningEdit->setReadOnly(true);
+    reasoningEdit->setStyleSheet("background-color: #ffffff; border: 1px solid #ddd; padding: 20px; font-size: 15px;");
     
-    layout->addWidget(reportText);
+    QString html = "<div style='line-height: 1.8; font-family: Inter, Segoe UI, sans-serif;'>";
+    if (claims.isEmpty()) {
+        html += "<h3 style='color: #666;'>No grounded answer found.</h3>";
+        html += "<p>The retrieval engine could not find sufficient evidence within your workspace documents to answer this query with high confidence.</p>";
+    } else {
+        html += "<h2 style='margin-top: 0;'>Synthesized Answer</h2>";
+        int claimIdx = 0;
+        for (const ClaimNode& claim : claims) {
+            // Confidence border coloring
+            QString borderColor = "#e0e0e0"; 
+            if (claim.confidence >= 0.7f) borderColor = "#4caf50";       // High
+            else if (claim.confidence >= 0.4f) borderColor = "#ff9800";  // Medium
+            
+            html += QString("<div class='claim' style='border-left: 4px solid %1; padding-left: 12px; margin-bottom: 16px;'>")
+                        .arg(borderColor);
+            html += QString("<span style='color: #2c3e50;'>%1</span> ").arg(claim.statement.toHtmlEscaped());
+            
+            for (int srcIdx : claim.sourceIndices) {
+                html += QString("<a href='source_%1' style='text-decoration: none;'><span style='background-color: #e3f2fd; color: #1976d2; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 4px;'>[%1]</span></a>")
+                            .arg(srcIdx);
+            }
+            html += "</div>";
+            claimIdx++;
+        }
+    }
+    html += "</div>";
+    reasoningEdit->setHtml(html);
     
-    QPushButton *closeBtn = new QPushButton("Close");
-    closeBtn->setStyleSheet("padding: 8px 16px; background-color: #6200ee; color: white; border-radius: 4px;");
+    // --- RIGHT PANE: Source Cards ---
+    QWidget *sourceWidget = new QWidget();
+    QVBoxLayout *sourceLayout = new QVBoxLayout(sourceWidget);
+    sourceLayout->setContentsMargins(0, 0, 0, 0);
+    sourceLayout->setSpacing(10);
+    
+    QLabel *sourceHeader = new QLabel("<b>Cited Sources</b>");
+    sourceHeader->setStyleSheet("font-size: 14px; color: #555; padding: 10px;");
+    sourceLayout->addWidget(sourceHeader);
+    
+    QScrollArea *scrollArea = new QScrollArea();
+    QWidget *scrollContent = new QWidget();
+    QVBoxLayout *cardsLayout = new QVBoxLayout(scrollContent);
+    
+    for (const SourceContext& ctx : contexts) {
+        QTextEdit *card = new QTextEdit();
+        card->setReadOnly(true);
+        card->setFixedHeight(160);
+        
+        QString cardHtml = QString("<div style='font-family: sans-serif;'>");
+        cardHtml += QString("<div style='font-size: 11px; color: #666; margin-bottom: 4px;'><b>[%1]</b> %2</div>")
+                        .arg(ctx.promptIndex).arg(ctx.docName.toHtmlEscaped());
+        cardHtml += QString("<div style='font-size: 12px; font-weight: bold; color: #4b0082; margin-bottom: 4px;'>%1</div>")
+                        .arg(ctx.headingPath.toHtmlEscaped());
+        
+        // Phase 4.2: Trust Indicators
+        QString trustColor = ctx.trustScore > 0.8 ? "#27ae60" : (ctx.trustScore > 0.5 ? "#f39c12" : "#e74c3c");
+        cardHtml += QString("<div style='font-size: 10px; color: %1; margin-bottom: 8px;'>🛡️ <b>Trust: %2</b> (%3)</div>")
+                        .arg(trustColor).arg(ctx.trustScore, 0, 'f', 2).arg(ctx.trustReason.toHtmlEscaped());
+
+        cardHtml += QString("<div style='font-size: 13px; color: #333; line-height: 1.4;'>%1...</div>")
+                        .arg(ctx.chunkText.left(200).toHtmlEscaped());
+        cardHtml += "</div>";
+        
+        card->setHtml(cardHtml);
+        card->setStyleSheet("background-color: #f9f9f9; border: 1px solid #ddd; border-top: 3px solid #6200ee; border-radius: 4px; padding: 8px;");
+        cardsLayout->addWidget(card);
+    }
+    cardsLayout->addStretch();
+    
+    scrollArea->setWidget(scrollContent);
+    scrollArea->setWidgetResizable(true);
+    sourceLayout->addWidget(scrollArea);
+    
+    splitter->addWidget(reasoningEdit);
+    splitter->addWidget(sourceWidget);
+    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(1, 2);
+    
+    mainLayout->addWidget(splitter);
+    
+    QPushButton *closeBtn = new QPushButton("Close Synthesis");
+    closeBtn->setStyleSheet("padding: 10px 20px; background-color: #6200ee; color: white; border-radius: 6px; font-weight: bold;");
     connect(closeBtn, &QPushButton::clicked, reportDlg, &QDialog::accept);
-    layout->addWidget(closeBtn, 0, Qt::AlignRight);
+    
+    QHBoxLayout *btnLayout = new QHBoxLayout();
+    btnLayout->addStretch();
+    btnLayout->addWidget(closeBtn);
+    mainLayout->addLayout(btnLayout);
     
     reportDlg->exec();
 }

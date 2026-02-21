@@ -31,7 +31,7 @@ public:
 private slots:
     void handlePdfProcessed(const QString& text);
     void handleSummaryReady(const QString& summary, const QMap<QString, QVariant>& metadata);
-    void handleSynthesisReady(const QString& report);
+    void handleSynthesisReady(const QVector<ClaimNode>& claims, const QVector<SourceContext>& contexts, const QMap<QString, QVariant>& metadata);
     void handleError(const QString& error);
     void processNextChunk(QProgressBar* progressBar);
     void processNextSummary(QProgressBar* progressBar);
@@ -45,13 +45,19 @@ private:
     QLabel *m_latencyLabel;
     QCheckBox *m_hybridCheck;
     QCheckBox *m_rerankCheck;
+    QCheckBox *m_mmrCheck;
+    QCheckBox *m_explorationCheck;
     QLineEdit *m_searchEdit;
     QPushButton *m_deepDiveBtn;
     QComboBox *m_embedCombo;
     QComboBox *m_reasonCombo;
+    QComboBox *m_rerankCombo;
     QLabel *m_embedHealth;
     QLabel *m_reasonHealth;
+    QLabel *m_rerankHealth;
+    QCheckBox *m_showRankDiffCheck;
     QComboBox *m_workspaceCombo;
+    QVector<VectorEntry> m_lastResults;
     QElapsedTimer m_searchTimer;
     
     void refreshWorkspaces();
@@ -78,7 +84,7 @@ private:
     QVector<ModelInfo> m_lastDiscoveredModels;
 
     void chunkAndProcess(const QVector<Chunk>& chunks, QProgressBar* progressBar);
-    void updateResultsTable(const QVector<VectorEntry>& results);
+    void updateResultsTable(const QVector<VectorEntry>& results, const QString& stage = "search");
 };
 
 #endif // MAINWINDOW_H

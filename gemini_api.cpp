@@ -1,16 +1,233 @@
 #include "gemini_api.h"
-#include <QUrl>
-#include <QNetworkRequest>
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QDebug>
-#include <memory>
+#include <QtConcurrent/QtConcurrent>
+#include <QFuture>
+#include <cmath>
+#include <QEventLoop>
+#include <algorithm>
+
+// Concrete strategy for local cross-encoders (LM Studio/Ollama)
+class LocalRerankClient : public IRerankClient {
+    QNetworkAccessManager* m_manager;
+    ModelInfo m_model;
+    
+    // Rolling statistics for score calibration
+    float m_mean = 0.5f;
+    float m_stdDev = 0.15f;
+    int m_sampleCount = 0;
+    
+    // Cross-session keys
+    QString m_meanKey;
+    QString m_stdKey;
+    
+    void updateStats(const QVector<float>& batchScores) {
+        if (batchScores.isEmpty()) return;
+        
+        float sum = 0;
+        for (float s : batchScores) sum += s;
+        float batchMean = sum / batchScores.size();
+        
+        // Drift Detection & Recovery Loop
+        if (m_sampleCount > 5) { // Wait for initial stability
+            float drift = std::abs(batchMean - m_mean);
+            if (drift > 0.4f) { // Significant drift threshold
+                qDebug() << "⚠️ Reranker Drift Detected (" << drift << "). Resetting stats.";
+                m_sampleCount = 0; // Trigger reset
+            }
+        }
+
+        // Welford's algorithm or simple rolling average
+        float alpha = 0.15f; 
+        if (m_sampleCount == 0) {
+            m_mean = batchMean;
+        } else {
+            m_mean = (1.0f - alpha) * m_mean + alpha * batchMean;
+        }
+        
+        float sqSum = 0;
+        for (float s : batchScores) sqSum += (s - m_mean) * (s - m_mean);
+        float batchStd = std::sqrt(sqSum / batchScores.size());
+        
+        if (m_sampleCount == 0) {
+            m_stdDev = qMax(0.01f, batchStd);
+        } else {
+            m_stdDev = (1.0f - alpha) * m_stdDev + alpha * qMax(0.01f, batchStd);
+        }
+        
+        m_sampleCount++;
+    }
+    
+    float normalize(float raw) {
+        // 1. Z-Score
+        float z = (raw - m_mean) / m_stdDev;
+        
+        // Phase 3B: Clamping & Outlier Rejection
+        if (std::abs(z) > 5.0) return -1.0f; // Reject outlier
+        z = std::clamp(z, -3.0f, 3.0f);      // Finalize Clamp
+        
+        // 2. Sigmoid to map to 0-1
+        return 1.0f / (1.0f + std::exp(-z));
+    }
+    
+public:
+public:
+    LocalRerankClient(QNetworkAccessManager* /* unused */, const ModelInfo& model) 
+        : m_model(model) {
+        // We do not store the passed manager. We instantiate thread-local managers
+        // because this client executes on QtConcurrent background threads.
+    }
+        
+    QVector<RerankResult> rerank(const QString& query, const QVector<VectorEntry>& candidates, int topK = 5) override {
+        if (candidates.isEmpty()) return {};
+        
+        QVector<RerankResult> results;
+        QString documentsBlock;
+        for (int i = 0; i < candidates.size(); ++i) {
+            documentsBlock += QString("[%1] %2\n").arg(i).arg(candidates[i].text.left(500));
+        }
+        
+        QString prompt = QString("You are a relevance scoring engine. Given the query: \"%1\"\n"
+                                 "Score each of the following documents from 0.0 (Irrelevant) to 1.0 (Highly Relevant) based on how well they answer the query.\n"
+                                 "Return ONLY a JSON array of scores in the order provided.\n"
+                                 "Example: [0.85, 0.12, 0.95]\n\n"
+                                 "Documents:\n%2").arg(query).arg(documentsBlock);
+                                 
+        QJsonObject json;
+        QUrl url(m_model.endpoint);
+        
+        if (m_model.engine == "Ollama") {
+            json["model"] = m_model.name;
+            json["prompt"] = prompt;
+            json["stream"] = false;
+            QJsonObject options;
+            options["temperature"] = 0;
+            json["options"] = options;
+        } else { // LM Studio (OpenAI format)
+            json["model"] = m_model.name;
+            QJsonArray messages;
+            messages.append(QJsonObject{{"role", "system"}, {"content", "You are a scoring engine. Return only JSON arrays."}});
+            messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
+            json["messages"] = messages;
+            json["temperature"] = 0;
+            if (url.isEmpty()) url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
+        }
+        
+        QNetworkRequest request(url);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        
+        // Phase 5 Readiness: Thread-safe local NetworkManager 
+        // Must be constructed on the executing thread (worker thread)
+        QNetworkAccessManager localManager;
+        
+        QEventLoop loop;
+        QNetworkReply* reply = localManager.post(request, QJsonDocument(json).toJson());
+        QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+        loop.exec();
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray data = reply->readAll();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            QString responseText;
+            
+            if (m_model.engine == "Ollama") {
+                responseText = doc.object()["response"].toString();
+            } else {
+                responseText = doc.object()["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
+            }
+            
+            int start = responseText.indexOf('[');
+            int end = responseText.lastIndexOf(']');
+            
+            if (start != -1 && end != -1) {
+                QString arrayStr = responseText.mid(start, end - start + 1);
+                QJsonDocument arrayDoc = QJsonDocument::fromJson(arrayStr.toUtf8());
+                QJsonArray scoresArr = arrayDoc.array();
+                
+                QVector<float> rawScores;
+                for (int i = 0; i < scoresArr.size(); ++i) rawScores.append((float)scoresArr[i].toDouble());
+                
+                if (!checkConsistency(rawScores)) {
+                    qDebug() << "⚠️ Reranker Consistency Failure: Low variance in batch scores. Skipping calibration update.";
+                    if (GeminiApi::instance()) {
+                        emit GeminiApi::instance()->anomalyDetected("Reranker Anomaly", 
+                            "The model is producing highly uniform scores. This may indicate a 'frozen' state. Recalibration recommended.");
+                    }
+                } else {
+                    updateStats(rawScores);
+                }
+                
+                for (int i = 0; i < qMin((int)rawScores.size(), candidates.size()); ++i) {
+                    float score = normalize(rawScores[i]);
+                    if (score < 0) continue; // Skip outliers
+                    
+                    RerankResult res;
+                    res.chunkId = candidates[i].id;
+                    res.score = score;
+                    res.originalRank = i;
+                    results.append(res);
+                }
+            }
+        }
+        reply->deleteLater();
+        
+        std::sort(results.begin(), results.end(), [](const RerankResult& a, const RerankResult& b) {
+            return a.score > b.score;
+        });
+        
+        if (results.size() > topK) results.resize(topK);
+        return results;
+    }
+    
+    QFuture<QVector<RerankResult>> rerankAsync(const QString& query, const QVector<VectorEntry>& candidates, int topK = 5) override {
+        return QtConcurrent::run([this, query, candidates, topK]() {
+            return rerank(query, candidates, topK);
+        });
+    }
+    
+    // Phase 3B: Cross-Session Persistence
+    void loadStats(float mean, float stdDev) override {
+        if (stdDev > 0) {
+            m_mean = mean;
+            m_stdDev = stdDev;
+            m_sampleCount = 10; // Assume stable start
+            qDebug() << "📊 Reranker stats loaded: Mean=" << m_mean << "StdDev=" << m_stdDev;
+        }
+    }
+    
+    void saveStats(float& mean, float& stdDev) override {
+        mean = m_mean;
+        stdDev = m_stdDev;
+    }
+    
+    // Phase 3B: Consistency Check
+    bool checkConsistency(const QVector<float>& scores) {
+        if (scores.isEmpty()) return true;
+        float var = 0;
+        for (float s : scores) var += (s - 0.5f) * (s - 0.5f);
+        if (var < 0.001f) return false; // Model is outputting identical values
+        return true;
+    }
+};
+
+GeminiApi* GeminiApi::s_instance = nullptr;
 
 GeminiApi::GeminiApi(const QString& apiKey, QObject *parent) 
     : QObject(parent), m_apiKey(apiKey) {
+    s_instance = this;
     m_networkManager = new QNetworkAccessManager(this);
+}
+
+void GeminiApi::setRerankModel(const ModelInfo& model) {
+    m_rerankModel = model;
+    // Instantiate the appropriate strategy
+    if (model.engine == "Ollama" || model.engine == "LMStudio") {
+        m_rerankClient = std::make_unique<LocalRerankClient>(m_networkManager, model);
+    }
+}
+
+void GeminiApi::updateRerankerStats(float mean, float stdDev) {
+    if (m_rerankClient) {
+        m_rerankClient->loadStats(mean, stdDev);
+    }
 }
 
 void GeminiApi::setLocalMode(int mode) {
@@ -155,27 +372,78 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
         }
 
         emit summaryReady(summary.trimmed(), metadata);
-        reply->deleteLater();
+    reply->deleteLater();
     });
 }
 
-void GeminiApi::synthesizeResponse(const QString& query, const QStringList& contexts, const QMap<QString, QVariant>& metadata) {
+void GeminiApi::synthesizeResponse(const QString& query, const QVector<SourceContext>& contexts, const QMap<QString, QVariant>& metadata) {
+    auto cosineSim = [](const QVector<float>& v1, const QVector<float>& v2) -> float {
+        if (v1.isEmpty() || v2.isEmpty() || v1.size() != v2.size()) return 0.0f;
+        double dot = 0.0, n1 = 0.0, n2 = 0.0;
+        for (int i = 0; i < v1.size(); ++i) {
+            dot += v1[i] * v2[i];
+            n1 += v1[i] * v1[i];
+            n2 += v2[i] * v2[i];
+        }
+        return (n1 > 0 && n2 > 0) ? (float)(dot / (sqrt(n1) * sqrt(n2))) : 0.0f;
+    };
+
+    // Phase 4.2: Semantic Fact Clustering
+    QVector<QVector<int>> clusters; // Indices of contexts
+    QSet<int> assigned;
+    
+    for (int i = 0; i < contexts.size(); ++i) {
+        if (assigned.contains(i)) continue;
+        QVector<int> currentCluster;
+        currentCluster.append(i);
+        assigned.insert(i);
+        
+        for (int j = i + 1; j < contexts.size(); ++j) {
+            if (assigned.contains(j)) continue;
+            if (cosineSim(contexts[i].embedding, contexts[j].embedding) > 0.85f) {
+                currentCluster.append(j);
+                assigned.insert(j);
+            }
+        }
+        clusters.append(currentCluster);
+    }
+
     QUrl url;
-    if (m_localMode == 1) { // Ollama
-        url = QUrl("http://127.0.0.1:11434/api/generate");
-    } else if (m_localMode == 2) { // LM Studio
-        url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
-    } else { // Gemini
+    if (m_localMode == 1) url = QUrl("http://127.0.0.1:11434/api/generate");
+    else if (m_localMode == 2) url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
+    else {
         QString cleanId = m_reasonModel.name.isEmpty() ? "models/gemini-1.5-flash" : m_reasonModel.name;
         if (!cleanId.startsWith("models/")) cleanId = "models/" + cleanId;
         url = QUrl("https://generativelanguage.googleapis.com/v1beta/" + cleanId + ":generateContent?key=" + m_apiKey);
     }
 
-    QString contextBlock = contexts.join("\n\n---\n\n");
-    QString prompt = QString("You are a technical document assistant. Based on the following textbook snippets from different sections, provide a comprehensive synthesized answer to the user's query. Bridge concepts across sections if necessary. \n\n"
-                             "USER QUERY: %1 \n\n"
-                             "DOCUMENT CONTEXT: \n %2 \n\n"
-                             "SYNTHESIS REPORT:").arg(query).arg(contextBlock);
+    QString contextBlock;
+    for (int i = 0; i < clusters.size(); ++i) {
+        const auto& cluster = clusters[i];
+        contextBlock += QString("[FACT UNIT %1]\n").arg(i + 1);
+        for (int idx : cluster) {
+            const SourceContext& ctx = contexts[idx];
+            contextBlock += QString("- Source [%1] (%2, Trust: %3): %4\n")
+                                .arg(ctx.promptIndex)
+                                .arg(ctx.docName)
+                                .arg(ctx.trustScore, 0, 'f', 2)
+                                .arg(ctx.chunkText);
+        }
+        contextBlock += "\n";
+    }
+
+    QString prompt = QString("You are a high-trust research synthesis engine. Based ONLY on the following FACT UNITS, provide a grounded answer.\n"
+                             "Each fact unit contains multiple supporting sources. Use Source [ID] for citations.\n"
+                             "If fact units conflict (e.g. different dates or opposing claims), YOU MUST mention the conflict.\n"
+                             "Return your answer ONLY as valid JSON.\n\n"
+                             "Format:\n"
+                             "{\n"
+                             "  \"answer\": [\n"
+                             "    {\"statement\": \"<claim text here>\", \"sources\": [<source_id1>, <source_id2>]}\n"
+                             "  ]\n"
+                             "}\n\n"
+                             "Context:\n%1\n\nQuery: %2")
+                             .arg(contextBlock).arg(query);
 
     QJsonObject json;
     if (m_localMode == 0) { // Gemini
@@ -201,7 +469,7 @@ void GeminiApi::synthesizeResponse(const QString& query, const QStringList& cont
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
     QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(json).toJson());
-    connect(reply, &QNetworkReply::finished, this, [this, reply, metadata]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, contexts, metadata]() {
         if (reply->error() != QNetworkReply::NoError) {
             emit errorOccurred("Synthesis error: " + reply->errorString());
             reply->deleteLater();
@@ -219,8 +487,77 @@ void GeminiApi::synthesizeResponse(const QString& query, const QStringList& cont
         } else { // LM Studio
             report = doc.object()["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
         }
+        
+        QVector<ClaimNode> claims;
+        
+        if (report.contains("No grounded answer found", Qt::CaseInsensitive)) {
+            emit synthesisReady(claims, contexts, metadata);
+            reply->deleteLater();
+            return;
+        }
+        
+        int startIdx = report.indexOf('{');
+        int endIdx = report.lastIndexOf('}');
+        
+        if (startIdx != -1 && endIdx != -1 && endIdx > startIdx) {
+            QString jsonStr = report.mid(startIdx, endIdx - startIdx + 1);
+            
+            int depth = 0;
+            for (QChar c : jsonStr) {
+                if (c == '{') depth++;
+                else if (c == '}') depth--;
+            }
+            
+            if (depth == 0) {
+                QJsonDocument outDoc = QJsonDocument::fromJson(jsonStr.toUtf8());
+                QJsonArray arr = outDoc.object()["answer"].toArray();
+                for (int i = 0; i < arr.size(); ++i) {
+                    QJsonObject item = arr[i].toObject();
+                    ClaimNode claim;
+                    claim.statement = item["statement"].toString();
+                    
+                    QVector<int> validSources;
+                    float totalConfidence = 0;
+                    
+                    if (item.contains("sources") && item["sources"].isArray()) {
+                        QJsonArray srcArr = item["sources"].toArray();
+                        for (int j = 0; j < srcArr.size(); ++j) {
+                            int srcIdx = srcArr[j].toInt();
+                            bool found = false;
+                            float cScore = 0.0f;
+                            for (const SourceContext& ctx : contexts) {
+                                if (ctx.promptIndex == srcIdx) {
+                                    found = true;
+                                    cScore = ctx.finalScore;
+                                    break;
+                                }
+                            }
+                            if (found) {
+                                validSources.append(srcIdx);
+                                totalConfidence += cScore;
+                            }
+                        }
+                    }
+                    
+                    claim.sourceIndices = validSources;
+                    if (!validSources.isEmpty()) {
+                        claim.confidence = totalConfidence / validSources.size();
+                    } else if (!contexts.isEmpty()){
+                         claim.confidence = contexts[0].finalScore * 0.5f; // Fallback so it doesn't render completely low confidence if model missed citing it
+                    }
+                    
+                    if (!claim.statement.isEmpty()) {
+                        claims.append(claim);
+                    }
+                }
+            } else {
+                qDebug() << "JSON Payload from model lacked balanced braces:\n" << report;
+            }
+        } else {
+            qDebug() << "No JSON structural wrapper found in LLM payload:\n" << report;
+        }
 
-        emit synthesisReady(report.trimmed(), metadata);
+        emit synthesisReady(claims, contexts, metadata);
         reply->deleteLater();
     });
 }
@@ -347,13 +684,14 @@ void GeminiApi::discoverModels() {
             qDebug() << "Ollama discovery found" << arr.size() << "models";
             for (const QJsonValue& v : arr) {
                 QString name = v.toObject()["name"].toString();
-                ModelInfo info{name, "Ollama", "http://localhost:11434", {}};
+                ModelInfo info{name, "Ollama", "http://localhost:11434", "(Ollama Native)", {}};
                 if (name.toLower().contains("embed") || name.toLower().contains("nomic")) {
                     info.capabilities.insert(ModelCapability::Embedding);
+                } else if (name.toLower().contains("rerank") || name.toLower().contains("bge")) {
+                    info.capabilities.insert(ModelCapability::Rerank);
                 } else {
                     info.capabilities.insert(ModelCapability::Chat);
                     info.capabilities.insert(ModelCapability::Summary);
-                    info.capabilities.insert(ModelCapability::Rerank);
                 }
                 state->models.append(info);
             }
@@ -371,13 +709,14 @@ void GeminiApi::discoverModels() {
             qDebug() << "LM Studio discovery found" << data.size() << "models";
             for (const QJsonValue& v : data) {
                 QString id = v.toObject()["id"].toString();
-                ModelInfo info{id, "LMStudio", "http://127.0.0.1:1234", {}};
+                ModelInfo info{id, "LMStudio", "http://127.0.0.1:1234", "(Local Shared)", {}};
                 if (id.toLower().contains("embed") || id.toLower().contains("nomic")) {
                     info.capabilities.insert(ModelCapability::Embedding);
+                } else if (id.toLower().contains("rerank") || id.toLower().contains("bge")) {
+                    info.capabilities.insert(ModelCapability::Rerank);
                 } else {
                     info.capabilities.insert(ModelCapability::Chat);
                     info.capabilities.insert(ModelCapability::Summary);
-                    info.capabilities.insert(ModelCapability::Rerank);
                 }
                 state->models.append(info);
             }
@@ -389,63 +728,47 @@ void GeminiApi::discoverModels() {
         check();
     });
 }
+
+#include <QFutureWatcher>
+
 void GeminiApi::rerank(const QString& query, const QVector<VectorEntry>& candidates) {
-    if (m_localMode == 0 || candidates.isEmpty()) {
+    if (!m_rerankClient || candidates.isEmpty()) {
         emit rerankingReady(candidates);
         return;
     }
 
-    struct RerankState {
-        QVector<VectorEntry> results;
-        int remaining;
-    };
-    auto state = std::make_shared<RerankState>();
-    state->results = candidates;
-    state->remaining = candidates.size();
-
-    for (int i = 0; i < candidates.size(); ++i) {
-        QUrl url;
-        QJsonObject json;
-        if (m_localMode == 1) { // Ollama
-            url = QUrl("http://127.0.0.1:11434/api/chat");
-            QJsonArray messages;
-            messages.append(QJsonObject{{"role", "user"}, {"content", QString("On a scale of 0 to 100, how relevant is this text to the query: '%1'?\nText: %2\nReply only with the number.").arg(query).arg(candidates[i].text)}});
-            json["model"] = m_reasonModel.name.isEmpty() ? "llama3" : m_reasonModel.name;
-            json["messages"] = messages;
-            json["stream"] = false;
-        } else { // LM Studio
-            url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
-            QJsonArray messages;
-            messages.append(QJsonObject{{"role", "user"}, {"content", QString("Rate relevance (0-100) of this text to query: '%1'\nText: %2\nOutput ONLY number.").arg(query).arg(candidates[i].text)}});
-            json["model"] = m_reasonModel.name.isEmpty() ? "local-model" : m_reasonModel.name;
-            json["messages"] = messages;
-        }
-
-        QNetworkRequest request(url);
-        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-        QNetworkReply* reply = m_networkManager->post(request, QJsonDocument(json).toJson());
+    QFuture<QVector<RerankResult>> future = m_rerankClient->rerankAsync(query, candidates);
+    auto* watcher = new QFutureWatcher<QVector<RerankResult>>(this);
+    
+    connect(watcher, &QFutureWatcher<QVector<RerankResult>>::finished, this, [this, watcher, candidates]() {
+        QVector<RerankResult> results = watcher->result();
+        QVector<VectorEntry> rerankedResults;
         
-        connect(reply, &QNetworkReply::finished, this, [this, reply, state, i]() {
-            if (reply->error() == QNetworkReply::NoError) {
-                QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
-                QString response;
-                if (m_localMode == 1) response = obj["message"].toObject()["content"].toString();
-                else response = obj["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
-                
-                // Extract number
-                bool ok;
-                double score = response.trimmed().split(QRegularExpression("[^0-9.]")).first().toDouble(&ok);
-                if (ok) {
-                    state->results[i].score = (state->results[i].score * 0.3) + (score / 100.0 * 0.7); // Weighted blend
+        for (const auto& res : results) {
+            for (const auto& entry : candidates) {
+                if (entry.id == res.chunkId) {
+                    VectorEntry updated = entry;
+                    updated.score = res.score;
+                    updated.rerankRank = res.originalRank;
+                    rerankedResults.append(updated);
+                    break;
                 }
             }
-            reply->deleteLater();
-            if (--state->remaining == 0) {
-                std::sort(state->results.begin(), state->results.end(), [](const VectorEntry& a, const VectorEntry& b) {
-                    return a.score > b.score;
-                });
-                emit rerankingReady(state->results);
-            }
-        });
-    }
+        }
+        
+        // Final sanity check: if results is empty due to error, return original
+        if (rerankedResults.isEmpty() && !candidates.isEmpty()) {
+            emit rerankingReady(candidates);
+        } else {
+            // Phase 3B: Broadcast updated stats for persistence
+            float m, s;
+            m_rerankClient->saveStats(m, s);
+            emit rerankerStatsUpdated(m, s);
+            
+            emit rerankingReady(rerankedResults);
+        }
+        watcher->deleteLater();
+    });
+    
+    watcher->setFuture(future);
 }
