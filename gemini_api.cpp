@@ -409,8 +409,8 @@ void GeminiApi::synthesizeResponse(const QString& query, const QVector<SourceCon
     }
 
     QUrl url;
-    if (m_localMode == 1) url = QUrl("http://127.0.0.1:11434/api/generate");
-    else if (m_localMode == 2) url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
+    if (m_reasonModel.engine == "Ollama") url = QUrl("http://127.0.0.1:11434/api/generate");
+    else if (m_reasonModel.engine == "LMStudio") url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
     else {
         QString cleanId = m_reasonModel.name.isEmpty() ? "models/gemini-1.5-flash" : m_reasonModel.name;
         if (!cleanId.startsWith("models/")) cleanId = "models/" + cleanId;
@@ -446,7 +446,7 @@ void GeminiApi::synthesizeResponse(const QString& query, const QVector<SourceCon
                              .arg(contextBlock).arg(query);
 
     QJsonObject json;
-    if (m_localMode == 0) { // Gemini
+    if (m_reasonModel.engine == "Gemini" || m_reasonModel.engine.isEmpty()) { // Gemini
         QJsonObject content;
         QJsonArray parts;
         parts.append(QJsonObject{{"text", prompt}});
@@ -454,15 +454,20 @@ void GeminiApi::synthesizeResponse(const QString& query, const QVector<SourceCon
         QJsonArray contents;
         contents.append(content);
         json["contents"] = contents;
-    } else if (m_localMode == 1) { // Ollama
+    } else if (m_reasonModel.engine == "Ollama") { // Ollama
         json["model"] = m_reasonModel.name.isEmpty() ? "llama3" : m_reasonModel.name;
         json["prompt"] = prompt;
         json["stream"] = false;
+        QJsonObject options;
+        options["temperature"] = 0.0;
+        json["options"] = options;
     } else { // LM Studio
         json["model"] = m_reasonModel.name.isEmpty() ? "local-model" : m_reasonModel.name;
         QJsonArray messages;
+        messages.append(QJsonObject{{"role", "system"}, {"content", "You are a helpful and intelligent synthesis assistant. Please format all responses in valid JSON."}});
         messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
         json["messages"] = messages;
+        json["temperature"] = 0.0;
     }
 
     QNetworkRequest request(url);
@@ -692,6 +697,7 @@ void GeminiApi::discoverModels() {
                 } else {
                     info.capabilities.insert(ModelCapability::Chat);
                     info.capabilities.insert(ModelCapability::Summary);
+                    info.capabilities.insert(ModelCapability::Rerank); // Any chat model can zero-shot rerank
                 }
                 state->models.append(info);
             }
@@ -717,6 +723,7 @@ void GeminiApi::discoverModels() {
                 } else {
                     info.capabilities.insert(ModelCapability::Chat);
                     info.capabilities.insert(ModelCapability::Summary);
+                    info.capabilities.insert(ModelCapability::Rerank); // Any chat model can zero-shot rerank
                 }
                 state->models.append(info);
             }
