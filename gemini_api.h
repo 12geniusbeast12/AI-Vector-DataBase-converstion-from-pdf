@@ -12,11 +12,20 @@
 #include <QMap>
 #include <QVariant>
 #include "vector_store.h"
+#include <QSet>
+
+enum class ModelCapability {
+    Embedding,
+    Chat,
+    Rerank,
+    Summary
+};
 
 struct ModelInfo {
     QString name;
     QString engine; // Gemini, Ollama, LMStudio
     QString endpoint;
+    QSet<ModelCapability> capabilities;
 };
 
 class GeminiApi : public QObject {
@@ -26,7 +35,8 @@ public:
 
     void setApiKey(const QString& key) { m_apiKey = key; }
     void setLocalMode(int mode);
-    void setSelectedModel(const ModelInfo& model) { m_selectedModel = model; }
+    void setEmbeddingModel(const ModelInfo& model) { m_embedModel = model; }
+    void setReasoningModel(const ModelInfo& model) { m_reasonModel = model; }
     
     void processPdf(const QString& filePath);
     void getEmbeddings(const QString& text, const QMap<QString, QVariant>& metadata = {});
@@ -51,7 +61,8 @@ private slots:
 private:
     QString m_apiKey;
     int m_localMode = 0; 
-    ModelInfo m_selectedModel;
+    ModelInfo m_embedModel;
+    ModelInfo m_reasonModel;
     QNetworkAccessManager* m_networkManager;
 };
 

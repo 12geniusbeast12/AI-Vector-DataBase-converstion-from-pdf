@@ -17,6 +17,9 @@ struct Chunk {
     int listLength = 0;
 };
 
+Q_DECLARE_METATYPE(QVector<Chunk>)
+
+
 class PdfProcessor : public QObject {
     Q_OBJECT
 public:
@@ -26,11 +29,13 @@ public:
     static void initLibrary();
     static void destroyLibrary();
 
-    QVector<Chunk> extractChunks(const QString& filePath);
+    void extractChunksAsync(const QString& filePath);
     static QString generateDocId(const QString& filePath);
 
 signals:
     void progressUpdated(int page, int total);
+    void chunksReady(QVector<Chunk> chunks);
+    void extractionFinished();
 };
 
 #endif // PDF_PROCESSOR_H

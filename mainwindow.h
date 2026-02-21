@@ -47,6 +47,10 @@ private:
     QCheckBox *m_rerankCheck;
     QLineEdit *m_searchEdit;
     QPushButton *m_deepDiveBtn;
+    QComboBox *m_embedCombo;
+    QComboBox *m_reasonCombo;
+    QLabel *m_embedHealth;
+    QLabel *m_reasonHealth;
     QComboBox *m_workspaceCombo;
     QElapsedTimer m_searchTimer;
     
@@ -58,6 +62,7 @@ private:
     qint64 m_tFusion = 0;
     qint64 m_tRerank = 0;
     bool m_isIndexing = false;
+    bool m_extractionComplete = false;
     QVector<Chunk> m_chunkQueue;
     int m_totalChunks = 0;
     int m_processedChunks = 0;

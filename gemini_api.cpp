@@ -19,16 +19,21 @@ void GeminiApi::setLocalMode(int mode) {
 }
 
 void GeminiApi::getEmbeddings(const QString& text, const QMap<QString, QVariant>& metadata) {
+    if (text.trimmed().isEmpty()) {
+        emit embeddingsReady(text, QVector<float>(), metadata);
+        return;
+    }
+
     QUrl url;
     QJsonObject json;
 
     if (m_localMode == 1) { // Ollama
         url = QUrl("http://127.0.0.1:11434/api/embeddings");
-        json["model"] = m_selectedModel.name.isEmpty() ? "nomic-embed-text" : m_selectedModel.name;
+        json["model"] = m_embedModel.name.isEmpty() ? "nomic-embed-text" : m_embedModel.name;
         json["prompt"] = text;
     } else if (m_localMode == 2) { // LM Studio
         url = QUrl("http://127.0.0.1:1234/v1/embeddings");
-        json["model"] = m_selectedModel.name;
+        json["model"] = m_embedModel.name;
         json["input"] = text;
     } else { // Gemini
         url = QUrl("https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=" + m_apiKey);
@@ -98,7 +103,9 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
     } else if (m_localMode == 2) { // LM Studio
         url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
     } else { // Gemini
-        url = QUrl("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + m_apiKey);
+        QString cleanId = m_reasonModel.name.isEmpty() ? "models/gemini-1.5-flash" : m_reasonModel.name;
+        if (!cleanId.startsWith("models/")) cleanId = "models/" + cleanId;
+        url = QUrl("https://generativelanguage.googleapis.com/v1beta/" + cleanId + ":generateContent?key=" + m_apiKey);
     }
 
     QJsonObject json;
@@ -113,15 +120,11 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
         contents.append(content);
         json["contents"] = contents;
     } else if (m_localMode == 1) { // Ollama
-        json["model"] = m_selectedModel.name.isEmpty() ? "llama3" : m_selectedModel.name;
+        json["model"] = m_reasonModel.name.isEmpty() ? "llama3" : m_reasonModel.name;
         json["prompt"] = prompt;
         json["stream"] = false;
     } else { // LM Studio
-        QString modelStr = m_selectedModel.name;
-        if (modelStr.isEmpty() || modelStr.toLower().contains("embed") || modelStr.toLower().contains("nomic")) {
-            modelStr = "local-model";
-        }
-        json["model"] = modelStr;
+        json["model"] = m_reasonModel.name.isEmpty() ? "local-model" : m_reasonModel.name;
         QJsonArray messages;
         messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
         json["messages"] = messages;
@@ -134,6 +137,7 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
     connect(reply, &QNetworkReply::finished, this, [this, reply, metadata]() {
         if (reply->error() != QNetworkReply::NoError) {
             emit errorOccurred("Summary error: " + reply->errorString());
+            emit summaryReady("", metadata); // Unblock queue
             reply->deleteLater();
             return;
         }
@@ -162,7 +166,9 @@ void GeminiApi::synthesizeResponse(const QString& query, const QStringList& cont
     } else if (m_localMode == 2) { // LM Studio
         url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
     } else { // Gemini
-        url = QUrl("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + m_apiKey);
+        QString cleanId = m_reasonModel.name.isEmpty() ? "models/gemini-1.5-flash" : m_reasonModel.name;
+        if (!cleanId.startsWith("models/")) cleanId = "models/" + cleanId;
+        url = QUrl("https://generativelanguage.googleapis.com/v1beta/" + cleanId + ":generateContent?key=" + m_apiKey);
     }
 
     QString contextBlock = contexts.join("\n\n---\n\n");
@@ -181,15 +187,11 @@ void GeminiApi::synthesizeResponse(const QString& query, const QStringList& cont
         contents.append(content);
         json["contents"] = contents;
     } else if (m_localMode == 1) { // Ollama
-        json["model"] = m_selectedModel.name.isEmpty() ? "llama3" : m_selectedModel.name;
+        json["model"] = m_reasonModel.name.isEmpty() ? "llama3" : m_reasonModel.name;
         json["prompt"] = prompt;
         json["stream"] = false;
     } else { // LM Studio
-        QString modelStr = m_selectedModel.name;
-        if (modelStr.isEmpty() || modelStr.toLower().contains("embed") || modelStr.toLower().contains("nomic")) {
-            modelStr = "local-model";
-        }
-        json["model"] = modelStr;
+        json["model"] = m_reasonModel.name.isEmpty() ? "local-model" : m_reasonModel.name;
         QJsonArray messages;
         messages.append(QJsonObject{{"role", "user"}, {"content", prompt}});
         json["messages"] = messages;
@@ -272,7 +274,7 @@ void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalT
         emit errorOccurred("Embeddings returned empty. Please verify you are using an embedding-compatible model in your local AI server.");
     } else {
         QMap<QString, QVariant> finalMetadata = metadata;
-        finalMetadata["model_sig"] = m_selectedModel.name.isEmpty() ? (m_localMode == 1 ? "nomic-embed-text" : "gemini-embedding-001") : m_selectedModel.name;
+        finalMetadata["model_sig"] = m_embedModel.name.isEmpty() ? (m_localMode == 1 ? "nomic-embed-text" : "gemini-embedding-001") : m_embedModel.name;
         emit embeddingsReady(originalText, embedding, finalMetadata);
     }
     reply->deleteLater();
@@ -345,9 +347,15 @@ void GeminiApi::discoverModels() {
             qDebug() << "Ollama discovery found" << arr.size() << "models";
             for (const QJsonValue& v : arr) {
                 QString name = v.toObject()["name"].toString();
-                if (name.contains("embed")) {
-                    state->models.append({name, "Ollama", "http://localhost:11434"});
+                ModelInfo info{name, "Ollama", "http://localhost:11434", {}};
+                if (name.toLower().contains("embed") || name.toLower().contains("nomic")) {
+                    info.capabilities.insert(ModelCapability::Embedding);
+                } else {
+                    info.capabilities.insert(ModelCapability::Chat);
+                    info.capabilities.insert(ModelCapability::Summary);
+                    info.capabilities.insert(ModelCapability::Rerank);
                 }
+                state->models.append(info);
             }
         } else {
             qDebug() << "Ollama discovery failed:" << oReply->errorString();
@@ -363,7 +371,15 @@ void GeminiApi::discoverModels() {
             qDebug() << "LM Studio discovery found" << data.size() << "models";
             for (const QJsonValue& v : data) {
                 QString id = v.toObject()["id"].toString();
-                state->models.append({id, "LMStudio", "http://127.0.0.1:1234"});
+                ModelInfo info{id, "LMStudio", "http://127.0.0.1:1234", {}};
+                if (id.toLower().contains("embed") || id.toLower().contains("nomic")) {
+                    info.capabilities.insert(ModelCapability::Embedding);
+                } else {
+                    info.capabilities.insert(ModelCapability::Chat);
+                    info.capabilities.insert(ModelCapability::Summary);
+                    info.capabilities.insert(ModelCapability::Rerank);
+                }
+                state->models.append(info);
             }
         } else {
             qDebug() << "LM Studio discovery failed (Port 1234):" << lReply->errorString();
@@ -394,18 +410,14 @@ void GeminiApi::rerank(const QString& query, const QVector<VectorEntry>& candida
             url = QUrl("http://127.0.0.1:11434/api/chat");
             QJsonArray messages;
             messages.append(QJsonObject{{"role", "user"}, {"content", QString("On a scale of 0 to 100, how relevant is this text to the query: '%1'?\nText: %2\nReply only with the number.").arg(query).arg(candidates[i].text)}});
-            json["model"] = m_selectedModel.name.isEmpty() ? "llama3" : m_selectedModel.name;
+            json["model"] = m_reasonModel.name.isEmpty() ? "llama3" : m_reasonModel.name;
             json["messages"] = messages;
             json["stream"] = false;
         } else { // LM Studio
             url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
             QJsonArray messages;
             messages.append(QJsonObject{{"role", "user"}, {"content", QString("Rate relevance (0-100) of this text to query: '%1'\nText: %2\nOutput ONLY number.").arg(query).arg(candidates[i].text)}});
-            QString model = m_selectedModel.name;
-            if (model.isEmpty() || model.toLower().contains("embed") || model.toLower().contains("nomic")) {
-                model = "local-model";
-            }
-            json["model"] = model;
+            json["model"] = m_reasonModel.name.isEmpty() ? "local-model" : m_reasonModel.name;
             json["messages"] = messages;
         }
 

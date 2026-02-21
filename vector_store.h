@@ -58,6 +58,12 @@ public:
     
     void setPath(const QString& name);
     bool exportToCsv(const QString& filePath);
+    
+    // Workspace Metadata & Guardrails
+    void setMetadata(const QString& key, const QString& value);
+    QString getMetadata(const QString& key);
+    int getRegisteredDimension();
+    void setRegisteredDimension(int dim);
 
 private:
     QString m_dbPath;

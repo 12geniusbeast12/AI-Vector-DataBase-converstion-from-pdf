@@ -25,16 +25,21 @@
 #include <QUrl>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QScreen>
+#include <QSqlDatabase>
+#include <QTimer>
 
 MainWindow::MainWindow(QWidget *parent)
-    : QMainWindow(parent), m_store(new VectorStore()), m_pdfProcessor(new PdfProcessor(this)), m_statusLabel(nullptr) {
+    : QMainWindow(parent), m_store(new VectorStore()), m_pdfProcessor(new PdfProcessor(this)), m_statusLabel(nullptr),
+      m_embedCombo(new QComboBox(this)), m_reasonCombo(new QComboBox(this)), 
+      m_embedHealth(new QLabel("🔴 Embedding", this)), m_reasonHealth(new QLabel("🔴 Reasoning", this)) {
     
     // ... UI Setup ...
     QWidget *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
     QVBoxLayout *layout = new QVBoxLayout(centralWidget);
 
-    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v3.6.0 - Advanced RAG)", this);
+    QLabel *titleLabel = new QLabel("PDF Vector DB Converter (v3.9.0 - Structured Knowledge System)", this);
     titleLabel->setStyleSheet("font-size: 22px; font-weight: bold; color: #e67e22; margin-bottom: 5px;");
     layout->addWidget(titleLabel);
 
@@ -59,6 +64,24 @@ MainWindow::MainWindow(QWidget *parent)
     settingsLayout->addWidget(apiKeyEdit);
     layout->addLayout(settingsLayout);
 
+    // Dual-Engine Control Row
+    QHBoxLayout *engineRow = new QHBoxLayout();
+    m_embedCombo->setMinimumWidth(250);
+    m_reasonCombo->setMinimumWidth(250);
+    
+    m_embedHealth->setStyleSheet("color: #e74c3c; font-weight: bold; margin-right: 10px;");
+    m_reasonHealth->setStyleSheet("color: #e74c3c; font-weight: bold;");
+
+    engineRow->addWidget(new QLabel("⚡ Embedding Engine:", this));
+    engineRow->addWidget(m_embedCombo);
+    engineRow->addWidget(m_embedHealth);
+    engineRow->addSpacing(20);
+    engineRow->addWidget(new QLabel("🧠 Reasoning Engine:", this));
+    engineRow->addWidget(m_reasonCombo);
+    engineRow->addWidget(m_reasonHealth);
+    engineRow->addStretch();
+    layout->addLayout(engineRow);
+
     QHBoxLayout *dbRow = new QHBoxLayout();
     m_workspaceCombo = new QComboBox(this);
     m_workspaceCombo->setMinimumWidth(200);
@@ -78,7 +101,15 @@ MainWindow::MainWindow(QWidget *parent)
             m_store->close();
             m_store->setPath(dbName);
             m_store->init();
-            m_statusLabel->setText(QString("Switched to workspace: %1").arg(dbName));
+            
+            // Restore Engine Selections
+            QString savedEmbed = m_store->getMetadata("embed_engine");
+            QString savedReason = m_store->getMetadata("reason_engine");
+            
+            if (!savedEmbed.isEmpty()) m_embedCombo->setCurrentText(savedEmbed);
+            if (!savedReason.isEmpty()) m_reasonCombo->setCurrentText(savedReason);
+            
+            m_statusLabel->setText(QString("Switched to workspace: %1 [Dim: %2]").arg(dbName).arg(m_store->getRegisteredDimension()));
         }
     });
 
@@ -183,6 +214,42 @@ MainWindow::MainWindow(QWidget *parent)
         }
     });
 
+    connect(m_pdfProcessor, &PdfProcessor::progressUpdated, this, [progressBar](int page, int total) {
+        if (progressBar->value() == 0) {
+            progressBar->setFormat(QString("Extracting Page %1/%2").arg(page).arg(total));
+        }
+    });
+
+    connect(m_pdfProcessor, &PdfProcessor::chunksReady, this, [this, progressBar](QVector<Chunk> chunks) {
+        bool wasEmpty = m_chunkQueue.isEmpty() && m_totalChunks > 0 && m_processedChunks > 0;
+        if (m_totalChunks == 0) wasEmpty = true;
+        
+        m_chunkQueue.append(chunks);
+        m_totalChunks += chunks.size();
+        
+        for (const auto& c : chunks) {
+            if (!c.headingPath.isEmpty() && c.text.length() > 5) {
+                m_sectionBuffer[c.headingPath] += c.text + "\n";
+            }
+        }
+        
+        progressBar->setMaximum(m_totalChunks);
+        m_statusLabel->setText(QString("Database: Indexing (%1/%2)...").arg(m_processedChunks).arg(m_totalChunks));
+        
+        // If we were waiting for chunks (the API is idle and the queue was empty), kick it off
+        if (m_isIndexing && wasEmpty) {
+            processNextChunk(progressBar);
+        }
+    });
+    
+    connect(m_pdfProcessor, &PdfProcessor::extractionFinished, this, [this, progressBar]() {
+        m_extractionComplete = true;
+        // If we finish extracting and the queue is already empty, we might need to finalize
+        if (m_isIndexing && m_chunkQueue.isEmpty()) {
+            processNextChunk(progressBar); // This will handle the completion logic
+        }
+    });
+
     m_statusLabel = new QLabel("Database: Initializing...", this);
     m_statusLabel->setStyleSheet("color: #7f8c8d; font-style: italic;");
     
@@ -204,39 +271,92 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     // Discovery logic
-    connect(m_api, &GeminiApi::discoveredModelsReady, this, [this, providerCombo](const QVector<ModelInfo>& models) {
-        QString current = providerCombo->currentText();
-        providerCombo->clear();
-        providerCombo->addItem("Google Gemini (Cloud)");
+    connect(m_api, &GeminiApi::discoveredModelsReady, this, [this](const QVector<ModelInfo>& models) {
+        m_embedCombo->clear();
+        m_reasonCombo->clear();
+        
+        m_embedCombo->addItem("Gemini-Embedding-001 (Cloud)");
+        m_reasonCombo->addItem("Gemini-1.5-Flash (Cloud)");
+        
         m_lastDiscoveredModels = models;
+        int embedCount = 0;
+        int reasonCount = 0;
+
         for (const auto& m : models) {
-            providerCombo->addItem(QString("[%1] %2").arg(m.engine).arg(m.name));
+            QString displayName = QString("[%1] %2").arg(m.engine).arg(m.name);
+            if (m.capabilities.contains(ModelCapability::Embedding)) {
+                m_embedCombo->addItem(displayName);
+                embedCount++;
+            }
+            if (m.capabilities.contains(ModelCapability::Chat)) {
+                m_reasonCombo->addItem(displayName);
+                reasonCount++;
+            }
         }
         
-        if (models.isEmpty()) {
-            m_statusLabel->setText("No Local AI detected. Ensure LM Studio Server is STARTED on port 1234.");
-            providerCombo->addItem("--- Manual Entry (See Troubleshoot) ---");
-        } else {
-            m_statusLabel->setText(QString("Detected %1 local models.").arg(models.size()));
-        }
+        // Update Health Indicators
+        m_embedHealth->setText(embedCount > 0 ? "🟢 Embedding Ready" : "🟡 Embedding (Cloud Only)");
+        m_embedHealth->setStyleSheet(embedCount > 0 ? "color: #27ae60; font-weight: bold;" : "color: #f39c12; font-weight: bold;");
+        
+        m_reasonHealth->setText(reasonCount > 0 ? "🟢 Reasoning Ready" : "🟡 Reasoning (Cloud Only)");
+        m_reasonHealth->setStyleSheet(reasonCount > 0 ? "color: #27ae60; font-weight: bold;" : "color: #f39c12; font-weight: bold;");
 
-        int idx = providerCombo->findText(current);
-        if (idx >= 0) providerCombo->setCurrentIndex(idx);
+        m_statusLabel->setText(QString("Discovery: %1 embedding, %2 reasoning models found.").arg(embedCount).arg(reasonCount));
     });
 
+    // Dual-Engine Selection Logic
+    auto updateEngines = [this]() {
+        // Embedding Engine
+        if (m_embedCombo->currentIndex() == 0) {
+            m_api->setEmbeddingModel({"gemini-embedding-001", "Gemini", "", {ModelCapability::Embedding}});
+        } else {
+            // ... (existing local lookup)
+            int localIdx = m_embedCombo->currentIndex() - 1;
+            int currentMatch = 0;
+            for (const auto& m : m_lastDiscoveredModels) {
+                if (m.capabilities.contains(ModelCapability::Embedding)) {
+                    if (currentMatch == localIdx) {
+                        m_api->setEmbeddingModel(m);
+                        break;
+                    }
+                    currentMatch++;
+                }
+            }
+        }
+        m_store->setMetadata("embed_engine", m_embedCombo->currentText());
+
+        // Reasoning Engine
+        if (m_reasonCombo->currentIndex() == 0) {
+            m_api->setReasoningModel({"gemini-1.5-flash", "Gemini", "", {ModelCapability::Chat, ModelCapability::Summary, ModelCapability::Rerank}});
+        } else {
+            // ... (existing local lookup)
+            int localIdx = m_reasonCombo->currentIndex() - 1;
+            int currentMatch = 0;
+            for (const auto& m : m_lastDiscoveredModels) {
+                if (m.capabilities.contains(ModelCapability::Chat)) {
+                    if (currentMatch == localIdx) {
+                        m_api->setReasoningModel(m);
+                        break;
+                    }
+                    currentMatch++;
+                }
+            }
+        }
+        m_store->setMetadata("reason_engine", m_reasonCombo->currentText());
+    };
+
+    connect(m_embedCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), updateEngines);
+    connect(m_reasonCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), updateEngines);
+
     // Connections
-    connect(providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this, providerCombo](int index) {
+    connect(providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), [this](int index) {
         if (index <= 0) {
             m_api->setLocalMode(0); // Gemini
         } else {
-            // Re-fetch from the current model info stored in m_lastDiscoveredModels
-            if (index - 1 < m_lastDiscoveredModels.size()) {
-                const auto& m = m_lastDiscoveredModels[index - 1];
-                int mode = (m.engine == "Ollama") ? 1 : 2;
-                m_api->setLocalMode(mode);
-                m_api->setSelectedModel(m);
-            }
+            int mode = (index == 1) ? 1 : 2; // 1 = Ollama, 2 = LM Studio
+            m_api->setLocalMode(mode);
         }
+        m_api->discoverModels();
     });
 
     connect(refreshBtn, &QPushButton::clicked, m_api, &GeminiApi::discoverModels);
@@ -268,16 +388,15 @@ MainWindow::MainWindow(QWidget *parent)
             m_currentDocId = PdfProcessor::generateDocId(fileName);
             fileLabel->setText(fileName);
             progressBar->setValue(0);
+            progressBar->setMaximum(1);
             progressBar->setFormat("Extracting chunks...");
             m_isIndexing = true;
+            m_extractionComplete = false;
+            m_totalChunks = 0;
+            m_processedChunks = 0;
+            m_chunkQueue.clear();
             
-            QVector<Chunk> chunks = m_pdfProcessor->extractChunks(fileName);
-            if (!chunks.isEmpty()) {
-                chunkAndProcess(chunks, progressBar);
-            } else {
-                m_isIndexing = false;
-                QMessageBox::critical(this, "Error", "Failed to extract chunks from PDF locally.");
-            }
+            m_pdfProcessor->extractChunksAsync(fileName);
         }
     });
 
@@ -327,6 +446,18 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     connect(m_api, &GeminiApi::embeddingsReady, this, [this, resultsTable, progressBar](const QString& text, const QVector<float>& embedding, const QMap<QString, QVariant>& metadata) {
+        int regDim = m_store->getRegisteredDimension();
+        if (regDim > 0 && embedding.size() != regDim) {
+            m_isIndexing = false;
+            m_statusLabel->setText("Error: Dimension Guardrail Triggered.");
+            QMessageBox::critical(this, "Dimension Mismatch", 
+                QString("The selected Embedding Engine produces %1-dimensional vectors, "
+                        "but this workspace requires %2-dimensional vectors.\n\n"
+                        "Please select the correct embedding model or switch to a new workspace.")
+                .arg(embedding.size()).arg(regDim));
+            return;
+        }
+
         if (!m_isIndexing) { 
             // SEARCH MODE
             m_tEmbed = m_searchTimer.elapsed();
@@ -447,6 +578,16 @@ void MainWindow::updateResultsTable(const QVector<VectorEntry>& results) {
     }
 }
 
+void MainWindow::chunkAndProcess(const QVector<Chunk>& chunks, QProgressBar* progressBar) {
+    // Obsolete with incremental streaming - kept for backward compatibility if ever needed.
+    m_chunkQueue = chunks;
+    m_totalChunks = chunks.size();
+    m_processedChunks = 0;
+    progressBar->setMaximum(m_totalChunks);
+    progressBar->setValue(0);
+    processNextChunk(progressBar);
+}
+
 void MainWindow::handlePdfProcessed(const QString& text) { }
 
 void MainWindow::handleError(const QString& error) {
@@ -455,6 +596,17 @@ void MainWindow::handleError(const QString& error) {
 
 void MainWindow::processNextChunk(QProgressBar* progressBar) {
     if (m_chunkQueue.isEmpty()) {
+        if (!m_extractionComplete) {
+            // Still extracting from PDF, wait for the next chunksReady signal
+            return;
+        }
+        
+        // Extraction is finished and chunks are processed. Start summaries.
+        if (m_summaryQueue.isEmpty() && !m_sectionBuffer.isEmpty()) {
+            m_summaryQueue = m_sectionBuffer.keys();
+            m_sectionBuffer.clear();
+        }
+        
         if (!m_summaryQueue.isEmpty()) {
             progressBar->setFormat("Generating Section Summaries: %v / %m");
             progressBar->setRange(0, m_summaryQueue.size());
@@ -469,6 +621,16 @@ void MainWindow::processNextChunk(QProgressBar* progressBar) {
     }
 
     Chunk next = m_chunkQueue.takeFirst();
+    
+    // Skip extremely short chunks that are likely noise or parsing artifacts
+    if (next.text.trimmed().length() <= 3) {
+        m_processedChunks++;
+        progressBar->setValue(m_processedChunks);
+        m_statusLabel->setText(QString("Database: Indexing (%1/%2)...").arg(m_processedChunks).arg(m_totalChunks));
+        QTimer::singleShot(0, this, [this, progressBar]() { processNextChunk(progressBar); });
+        return;
+    }
+
     QMap<QString, QVariant> metadata;
     metadata["page"] = next.pageNum;
     metadata["index"] = m_processedChunks;
@@ -503,6 +665,15 @@ void MainWindow::processNextSummary(QProgressBar* progressBar) {
 }
 
 void MainWindow::handleSummaryReady(const QString& summary, const QMap<QString, QVariant>& metadata) {
+    if (summary.trimmed().isEmpty()) {
+        QProgressBar* pb = findChild<QProgressBar*>();
+        if (pb) {
+            pb->setValue(pb->value() + 1);
+            processNextSummary(pb);
+        }
+        return;
+    }
+    
     // Once summary is ready, get its embedding to index it
     m_api->getEmbeddings(summary, metadata);
     
@@ -573,33 +744,6 @@ void MainWindow::handleSynthesisReady(const QString& report) {
     layout->addWidget(closeBtn, 0, Qt::AlignRight);
     
     reportDlg->exec();
-}
-
-void MainWindow::chunkAndProcess(const QVector<Chunk>& chunks, QProgressBar* progressBar) {
-    m_chunkQueue = chunks;
-    m_totalChunks = m_chunkQueue.size();
-    m_processedChunks = 0;
-    
-    m_sectionBuffer.clear();
-    m_summaryQueue.clear();
-
-    for (const auto& c : chunks) {
-        if (!c.headingPath.isEmpty()) {
-            m_sectionBuffer[c.headingPath] += c.text + "\n";
-        }
-    }
-    m_summaryQueue = m_sectionBuffer.keys();
-
-    if (m_totalChunks == 0) {
-        QMessageBox::warning(this, "No Text", "Detailed extraction found no valid text blocks.");
-        return;
-    }
-
-    progressBar->setRange(0, m_totalChunks);
-    progressBar->setValue(0);
-    progressBar->setFormat("Indexing Chunks: %v / %m");
-
-    processNextChunk(progressBar);
 }
 
 void MainWindow::refreshWorkspaces() {
