@@ -244,11 +244,11 @@ void GeminiApi::getEmbeddings(const QString& text, const QMap<QString, QVariant>
     QUrl url;
     QJsonObject json;
 
-    if (m_localMode == 1) { // Ollama
+    if (m_embedModel.engine == "Ollama") { // Ollama
         url = QUrl("http://127.0.0.1:11434/api/embeddings");
         json["model"] = m_embedModel.name.isEmpty() ? "nomic-embed-text" : m_embedModel.name;
         json["prompt"] = text;
-    } else if (m_localMode == 2) { // LM Studio
+    } else if (m_embedModel.engine == "LMStudio") { // LM Studio
         url = QUrl("http://127.0.0.1:1234/v1/embeddings");
         json["model"] = m_embedModel.name;
         json["input"] = text;
@@ -315,9 +315,9 @@ void GeminiApi::processPdf(const QString& filePath) {
 
 void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVariant>& metadata) {
     QUrl url;
-    if (m_localMode == 1) { // Ollama
+    if (m_reasonModel.engine == "Ollama") { // Ollama
         url = QUrl("http://127.0.0.1:11434/api/generate");
-    } else if (m_localMode == 2) { // LM Studio
+    } else if (m_reasonModel.engine == "LMStudio") { // LM Studio
         url = QUrl("http://127.0.0.1:1234/v1/chat/completions");
     } else { // Gemini
         QString cleanId = m_reasonModel.name.isEmpty() ? "models/gemini-1.5-flash" : m_reasonModel.name;
@@ -328,7 +328,7 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
     QJsonObject json;
     QString prompt = QString("Summarize the following textbook section into a single concise paragraph (max 3 sentences). Focus on core concepts and terminology. \n\n Content: %1").arg(text);
 
-    if (m_localMode == 0) { // Gemini
+    if (m_reasonModel.engine == "Gemini" || m_reasonModel.engine.isEmpty()) { // Gemini
         QJsonObject content;
         QJsonArray parts;
         parts.append(QJsonObject{{"text", prompt}});
@@ -336,7 +336,7 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
         QJsonArray contents;
         contents.append(content);
         json["contents"] = contents;
-    } else if (m_localMode == 1) { // Ollama
+    } else if (m_reasonModel.engine == "Ollama") { // Ollama
         json["model"] = m_reasonModel.name.isEmpty() ? "llama3" : m_reasonModel.name;
         json["prompt"] = prompt;
         json["stream"] = false;
@@ -363,9 +363,9 @@ void GeminiApi::generateSummary(const QString& text, const QMap<QString, QVarian
         QJsonDocument doc = QJsonDocument::fromJson(data);
         QString summary;
 
-        if (m_localMode == 0) { // Gemini
+        if (m_reasonModel.engine == "Gemini" || m_reasonModel.engine.isEmpty()) { // Gemini
             summary = doc.object()["candidates"].toArray()[0].toObject()["content"].toObject()["parts"].toArray()[0].toObject()["text"].toString();
-        } else if (m_localMode == 1) { // Ollama
+        } else if (m_reasonModel.engine == "Ollama") { // Ollama
             summary = doc.object()["response"].toString();
         } else { // LM Studio
             summary = doc.object()["choices"].toArray()[0].toObject()["message"].toObject()["content"].toString();
@@ -581,9 +581,9 @@ void GeminiApi::onEmbeddingsReply(QNetworkReply* reply, const QString& originalT
     QJsonObject obj = doc.object();
     QVector<float> embedding;
 
-    if (m_localMode > 0) {
+    if (m_embedModel.engine != "Gemini" && !m_embedModel.engine.isEmpty()) {
         QJsonArray values;
-        if (m_localMode == 2) { // LM Studio (OpenAI format)
+        if (m_embedModel.engine == "LMStudio") { // LM Studio (OpenAI format)
             QJsonArray dataArr = obj["data"].toArray();
             if (!dataArr.isEmpty()) {
                 values = dataArr[0].toObject()["embedding"].toArray();
