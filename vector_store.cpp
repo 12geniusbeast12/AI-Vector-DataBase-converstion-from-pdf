@@ -710,10 +710,17 @@ SourceContext VectorStore::getSourceContext(VectorEntry entry, int offset, const
     // Let's explicitly query the chunk_idx for the given rowid (entry.id)
     int chunkIdx = entry.id; // Assume rowid by default
     QSqlQuery q(m_db);
-    q.prepare("SELECT chunk_idx FROM embeddings WHERE id = :id");
+    q.prepare("SELECT chunk_idx, created_at, boost_factor FROM embeddings WHERE id = :id");
     q.bindValue(":id", entry.id);
     if (q.exec() && q.next()) {
         chunkIdx = q.value(0).toInt();
+        QDateTime created = q.value(1).toDateTime();
+        float boost = q.value(2).toFloat();
+        
+        qint64 secsAgo = created.secsTo(QDateTime::currentDateTime());
+        float recencyFactor = qMax(0.5f, 1.0f - (float)secsAgo / (3600.0f * 24.0f * 30.0f));
+        entry.trustScore = boost * recencyFactor;
+        entry.createdAt = created;
     }
 
     ctx.chunkId = QString("%1_%2").arg(entry.docId).arg(chunkIdx);
